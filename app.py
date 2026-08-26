@@ -1,182 +1,304 @@
-
-import io
 import os
 import re
+import io
+import uuid
 import shutil
-import subprocess
-import tempfile
 import zipfile
-from datetime import datetime
-from pathlib import Path
+import tempfile
+import subprocess
+import platform
 
 import pandas as pd
 import streamlit as st
+
+from datetime import datetime
+
 from docx import Document
-from reportlab.lib import colors
-from reportlab.lib.pagesizes import A4, landscape
-from reportlab.lib.styles import getSampleStyleSheet
-from reportlab.lib.units import mm
+
 from reportlab.platypus import (
     SimpleDocTemplate,
     Paragraph,
     Spacer,
     Table,
-    TableStyle,
-    Image,
+    TableStyle
 )
 
+from reportlab.lib import colors
+from reportlab.lib.pagesizes import A4, landscape
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib.enums import TA_CENTER, TA_LEFT
+from reportlab.lib.units import mm
+
+
 # ============================================================
-# STREAMLIT CONFIG
+# PAGE CONFIGURATION
 # ============================================================
 
 st.set_page_config(
-    page_title="eCRF Document Automation",
+    page_title="eCRF Document Automation System",
     page_icon="📄",
     layout="wide",
+    initial_sidebar_state="collapsed"
 )
 
+
 # ============================================================
-# HELPERS
+# CUSTOM CSS
 # ============================================================
 
-def format_value(value):
-    if value is None:
-        return ""
+st.markdown(
+    """
+    <style>
 
-    try:
-        if pd.isna(value):
-            return ""
-    except Exception:
-        pass
+    /* ------------------------------------------------------
+       MAIN APP
+    ------------------------------------------------------ */
 
-    if isinstance(value, (datetime, pd.Timestamp)):
-        return value.strftime("%d/%m/%Y")
+    .stApp {
+        background-color: #0e1117;
+        color: #ffffff;
+    }
 
-    val = str(value).strip().lower()
+    .main .block-container {
+        padding-top: 2.5rem;
+        padding-bottom: 3rem;
+        max-width: 100%;
+    }
 
-    if val in ["✔", "✓", "☑", "yes", "y", "true"]:
-        return "☑"
+    /* ------------------------------------------------------
+       HEADINGS
+    ------------------------------------------------------ */
 
-    if val in ["no", "n", "false"]:
-        return "☐"
+    h1 {
+        color: #f5f5f5 !important;
+        font-size: 30px !important;
+        font-weight: 700 !important;
+    }
 
-    return str(value)
+    h2 {
+        color: #f5f5f5 !important;
+        font-size: 22px !important;
+    }
+
+    h3 {
+        color: #f5f5f5 !important;
+        font-size: 18px !important;
+    }
+
+    /* ------------------------------------------------------
+       FILE UPLOADERS
+    ------------------------------------------------------ */
+
+    [data-testid="stFileUploader"] {
+        background-color: #262934;
+        border-radius: 6px;
+        padding: 4px;
+    }
+
+    [data-testid="stFileUploaderDropzone"] {
+        background-color: #262934;
+        border: 1px solid #343741;
+    }
+
+    /* ------------------------------------------------------
+       BUTTONS
+    ------------------------------------------------------ */
+
+    .stButton > button {
+        width: 100%;
+        border-radius: 5px;
+        border: 1px solid #444751;
+        background-color: #262934;
+        color: #ffffff;
+        min-height: 38px;
+        font-weight: 500;
+    }
+
+    .stButton > button:hover {
+        border-color: #777b86;
+        color: #ffffff;
+    }
+
+    /* ------------------------------------------------------
+       GENERATE BUTTON
+    ------------------------------------------------------ */
+
+    div[data-testid="stButton"] button[kind="primary"] {
+        background-color: #ff4b4b;
+        border-color: #ff4b4b;
+        color: white;
+        font-weight: 600;
+    }
+
+    div[data-testid="stButton"] button[kind="primary"]:hover {
+        background-color: #ff3333;
+        border-color: #ff3333;
+    }
+
+    /* ------------------------------------------------------
+       DOWNLOAD BUTTON
+    ------------------------------------------------------ */
+
+    div[data-testid="stDownloadButton"] button {
+        background-color: #ff4b4b;
+        border-color: #ff4b4b;
+        color: white;
+        font-weight: 600;
+        width: 100%;
+    }
+
+    div[data-testid="stDownloadButton"] button:hover {
+        background-color: #ff3333;
+        border-color: #ff3333;
+    }
+
+    /* ------------------------------------------------------
+       DATAFRAME
+    ------------------------------------------------------ */
+
+    [data-testid="stDataFrame"] {
+        border: 1px solid #30333d;
+        border-radius: 5px;
+    }
+
+    /* ------------------------------------------------------
+       SUCCESS MESSAGE
+    ------------------------------------------------------ */
+
+    [data-testid="stAlert"] {
+        border-radius: 5px;
+    }
+
+    /* ------------------------------------------------------
+       METRIC BOX
+    ------------------------------------------------------ */
+
+    .summary-box {
+        background-color: #171a21;
+        border: 1px solid #30333d;
+        border-radius: 6px;
+        padding: 14px;
+        text-align: center;
+        margin-bottom: 10px;
+    }
+
+    .summary-title {
+        color: #9da3af;
+        font-size: 13px;
+    }
+
+    .summary-value {
+        color: #ffffff;
+        font-size: 24px;
+        font-weight: 700;
+        margin-top: 5px;
+    }
+
+    /* ------------------------------------------------------
+       PACKAGE STRUCTURE
+    ------------------------------------------------------ */
+
+    .package-box {
+        background-color: #15181f;
+        border: 1px solid #30333d;
+        border-radius: 6px;
+        padding: 15px 20px;
+        font-family: monospace;
+        color: #d9dce3;
+        line-height: 1.8;
+    }
+
+    /* ------------------------------------------------------
+       SMALL TEXT
+    ------------------------------------------------------ */
+
+    .small-text {
+        color: #9da3af;
+        font-size: 12px;
+    }
+
+    </style>
+    """,
+    unsafe_allow_html=True
+)
 
 
-def format_mcq(selected_value, option):
-    """Return checked/unchecked symbol for an MCQ option."""
-    if selected_value is None:
-        return "☐"
+# ============================================================
+# SESSION STATE INITIALIZATION
+# ============================================================
 
-    try:
-        if pd.isna(selected_value):
-            return "☐"
-    except Exception:
-        pass
+DEFAULT_STATE = {
+    "excel_bytes": None,
+    "excel_filename": None,
 
-    selected_value = str(selected_value).strip()
+    "template_bytes": None,
+    "template_filename": None,
 
-    if not selected_value:
-        return "☐"
+    "dataframe": None,
 
-    selected_options = re.split(r"[,;|]", selected_value)
-    selected_options = [
-        x.strip().lower()
-        for x in selected_options
-        if x.strip()
-    ]
+    "selected_rows": [],
 
-    return "☑" if option.strip().lower() in selected_options else "☐"
+    "generated": False,
+    "zip_bytes": None,
+    "zip_filename": None,
+
+    "summary": None,
+    "audit_records": [],
+
+    "generation_id": None
+}
 
 
-def process_text(text, data):
-    if not text:
-        return text
+for key, value in DEFAULT_STATE.items():
 
-    # Normal placeholders
-    for key, value in data.items():
-        placeholder = "{{" + str(key) + "}}"
-        text = text.replace(
-            placeholder,
-            format_value(value)
-        )
+    if key not in st.session_state:
+        st.session_state[key] = value
 
-    # MCQ placeholders:
-    # {{MCQ:Gender:Male}}
-    # {{MCQ:Symptoms:Fever}}
-    mcq_pattern = r"\{\{MCQ:(.*?):(.*?)\}\}"
 
-    def mcq_replace(match):
-        column_name = match.group(1).strip()
-        option = match.group(2).strip()
-        selected_value = data.get(column_name, "")
+# ============================================================
+# UTILITY FUNCTIONS
+# ============================================================
 
-        return format_mcq(
-            selected_value,
-            option
-        )
-
-    return re.sub(
-        mcq_pattern,
-        mcq_replace,
-        text
+PERSISTENT_STORAGE_DIRECTORIES = [
+    os.path.join(
+        os.path.dirname(__file__),
+        directory_name
     )
+    for directory_name in [
+        "uploads",
+        "downloads",
+        "output"
+    ]
+]
 
 
-def process_paragraph(paragraph, data):
-    if not paragraph.text:
-        return
+def clear_persistent_storage():
 
-    # Do not overwrite paragraphs containing images/drawings.
-    if any(
-        run.element.xpath(".//w:drawing")
-        for run in paragraph.runs
-    ):
-        return
+    for directory_path in PERSISTENT_STORAGE_DIRECTORIES:
 
-    original_text = paragraph.text
-    new_text = process_text(original_text, data)
+        if not os.path.isdir(directory_path):
+            continue
 
-    if new_text != original_text:
-        paragraph.text = new_text
+        for entry in os.scandir(directory_path):
 
+            try:
 
-def process_table(table, data):
-    for row in table.rows:
-        for cell in row.cells:
+                if entry.is_dir(follow_symlinks=False):
+                    shutil.rmtree(
+                        entry.path,
+                        ignore_errors=True
+                    )
 
-            for paragraph in cell.paragraphs:
-                process_paragraph(paragraph, data)
+                else:
+                    os.remove(
+                        entry.path
+                    )
 
-            for nested_table in cell.tables:
-                process_table(nested_table, data)
-
-
-def replace_placeholders(doc, data):
-    # Main document
-    for paragraph in doc.paragraphs:
-        process_paragraph(paragraph, data)
-
-    for table in doc.tables:
-        process_table(table, data)
-
-    # Headers and footers
-    for section in doc.sections:
-
-        for paragraph in section.header.paragraphs:
-            process_paragraph(paragraph, data)
-
-        for table in section.header.tables:
-            process_table(table, data)
-
-        for paragraph in section.footer.paragraphs:
-            process_paragraph(paragraph, data)
-
-        for table in section.footer.tables:
-            process_table(table, data)
-
+            except OSError:
+                pass
 
 def safe_filename(value):
+
     value = str(value).strip()
 
     value = re.sub(
@@ -185,120 +307,685 @@ def safe_filename(value):
         value
     )
 
-    return value or "document"
+    value = value.strip(". ")
+
+    if not value:
+        value = "file"
+
+    return value
 
 
-def convert_docx_to_pdf(docx_path, pdf_path):
-    """
-    Convert DOCX to PDF using LibreOffice.
-    This is suitable for Linux/Docker/Render.
-    """
+# ============================================================
+# VALUE FORMATTER
+# ============================================================
 
-    output_dir = os.path.dirname(pdf_path)
+def format_value(value):
 
-    result = subprocess.run(
-        [
-            "libreoffice",
-            "--headless",
-            "--convert-to",
-            "pdf",
-            "--outdir",
-            output_dir,
-            docx_path,
-        ],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
+    if value is None:
+        return ""
+
+    try:
+
+        if pd.isna(value):
+            return ""
+
+    except Exception:
+        pass
+
+    if isinstance(
+        value,
+        (datetime, pd.Timestamp)
+    ):
+
+        return value.strftime(
+            "%d/%m/%Y"
+        )
+
+    val = str(value).strip().lower()
+
+    if val in [
+        "✔",
+        "✓",
+        "☑"
+    ]:
+
+        return "☑"
+
+    if val in [
+        "yes",
+        "y",
+        "true"
+    ]:
+
+        return "☑"
+
+    if val in [
+        "no",
+        "n",
+        "false"
+    ]:
+
+        return "☐"
+
+    return str(value)
+
+
+# ============================================================
+# MCQ FORMATTER
+# ============================================================
+
+def format_mcq(
+    selected_value,
+    option
+):
+
+    if selected_value is None:
+        return "☐"
+
+    try:
+
+        if pd.isna(selected_value):
+            return "☐"
+
+    except Exception:
+        pass
+
+    selected_value = str(
+        selected_value
+    ).strip()
+
+    if not selected_value:
+        return "☐"
+
+    option = str(
+        option
+    ).strip()
+
+    selected_options = re.split(
+        r"[,;|]",
+        selected_value
     )
 
-    expected_pdf = os.path.join(
+    selected_options = [
+        x.strip().lower()
+        for x in selected_options
+        if x.strip()
+    ]
+
+    if option.lower() in selected_options:
+
+        return "☑"
+
+    return "☐"
+
+
+# ============================================================
+# PROCESS TEXT
+# ============================================================
+
+def process_text(
+    text,
+    data
+):
+
+    if not text:
+        return text
+
+    # --------------------------------------------------------
+    # NORMAL PLACEHOLDERS
+    # --------------------------------------------------------
+
+    for key, value in data.items():
+
+        placeholder = (
+            "{{"
+            + str(key)
+            + "}}"
+        )
+
+        formatted_value = format_value(
+            value
+        )
+
+        text = text.replace(
+            placeholder,
+            formatted_value
+        )
+
+    # --------------------------------------------------------
+    # MCQ PLACEHOLDERS
+    # --------------------------------------------------------
+
+    mcq_pattern = (
+        r"\{\{MCQ:(.*?):(.*?)\}\}"
+    )
+
+    def mcq_replace(match):
+
+        column_name = (
+            match.group(1)
+            .strip()
+        )
+
+        option = (
+            match.group(2)
+            .strip()
+        )
+
+        selected_value = data.get(
+            column_name,
+            ""
+        )
+
+        return format_mcq(
+            selected_value,
+            option
+        )
+
+    text = re.sub(
+        mcq_pattern,
+        mcq_replace,
+        text
+    )
+
+    return text
+
+
+# ============================================================
+# PROCESS WORD PARAGRAPH
+# ============================================================
+
+def process_paragraph(
+    paragraph,
+    data
+):
+
+    if not paragraph.text:
+        return
+
+    original_text = paragraph.text
+
+    new_text = process_text(
+        original_text,
+        data
+    )
+
+    if new_text == original_text:
+        return
+
+    # --------------------------------------------------------
+    # Try to preserve run formatting when placeholder
+    # is completely contained in a single run.
+    # --------------------------------------------------------
+
+    changed = False
+
+    for run in paragraph.runs:
+
+        if not run.text:
+            continue
+
+        processed_run_text = process_text(
+            run.text,
+            data
+        )
+
+        if processed_run_text != run.text:
+
+            run.text = processed_run_text
+            changed = True
+
+    if changed:
+        return
+
+    # --------------------------------------------------------
+    # Fallback for placeholders split across runs
+    # --------------------------------------------------------
+
+    paragraph.text = new_text
+
+
+# ============================================================
+# PROCESS TABLE
+# ============================================================
+
+def process_table(
+    table,
+    data
+):
+
+    for row in table.rows:
+
+        for cell in row.cells:
+
+            for paragraph in cell.paragraphs:
+
+                process_paragraph(
+                    paragraph,
+                    data
+                )
+
+            for nested_table in cell.tables:
+
+                process_table(
+                    nested_table,
+                    data
+                )
+
+
+# ============================================================
+# REPLACE WORD PLACEHOLDERS
+# ============================================================
+
+def replace_placeholders(
+    doc,
+    data
+):
+
+    # --------------------------------------------------------
+    # MAIN PARAGRAPHS
+    # --------------------------------------------------------
+
+    for paragraph in doc.paragraphs:
+
+        process_paragraph(
+            paragraph,
+            data
+        )
+
+    # --------------------------------------------------------
+    # MAIN TABLES
+    # --------------------------------------------------------
+
+    for table in doc.tables:
+
+        process_table(
+            table,
+            data
+        )
+
+    # --------------------------------------------------------
+    # HEADERS AND FOOTERS
+    # --------------------------------------------------------
+
+    for section in doc.sections:
+
+        # Header
+
+        for paragraph in section.header.paragraphs:
+
+            process_paragraph(
+                paragraph,
+                data
+            )
+
+        for table in section.header.tables:
+
+            process_table(
+                table,
+                data
+            )
+
+        # Footer
+
+        for paragraph in section.footer.paragraphs:
+
+            process_paragraph(
+                paragraph,
+                data
+            )
+
+        for table in section.footer.tables:
+
+            process_table(
+                table,
+                data
+            )
+
+
+# ============================================================
+# DOCX → PDF
+# ============================================================
+
+def convert_docx_to_pdf(
+    docx_path,
+    pdf_path
+):
+
+    output_dir = os.path.dirname(
+        pdf_path
+    )
+
+    os.makedirs(
         output_dir,
-        Path(docx_path).stem + ".pdf"
+        exist_ok=True
     )
 
-    if result.returncode != 0:
-        raise RuntimeError(
-            "LibreOffice conversion failed: "
-            + (result.stderr or result.stdout)
+    # --------------------------------------------------------
+    # METHOD 1: docx2pdf on Windows
+    # --------------------------------------------------------
+
+    if platform.system().lower() == "windows":
+
+        try:
+
+            from docx2pdf import convert
+
+            convert(
+                docx_path,
+                pdf_path
+            )
+
+            if os.path.exists(pdf_path):
+
+                return
+
+        except Exception as e:
+
+            windows_error = str(e)
+
+        else:
+
+            windows_error = (
+                "DOCX to PDF conversion did not "
+                "create the PDF file."
+            )
+
+    # --------------------------------------------------------
+    # METHOD 2: LibreOffice / soffice
+    # --------------------------------------------------------
+
+    soffice_candidates = [
+        "soffice",
+        "libreoffice"
+    ]
+
+    for soffice in soffice_candidates:
+
+        try:
+
+            result = subprocess.run(
+                [
+                    soffice,
+                    "--headless",
+                    "--convert-to",
+                    "pdf",
+                    "--outdir",
+                    output_dir,
+                    docx_path
+                ],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                timeout=120
+            )
+
+            generated_name = (
+                os.path.splitext(
+                    os.path.basename(docx_path)
+                )[0]
+                + ".pdf"
+            )
+
+            generated_pdf = os.path.join(
+                output_dir,
+                generated_name
+            )
+
+            if os.path.exists(
+                generated_pdf
+            ):
+
+                if os.path.abspath(
+                    generated_pdf
+                ) != os.path.abspath(
+                    pdf_path
+                ):
+
+                    shutil.move(
+                        generated_pdf,
+                        pdf_path
+                    )
+
+                return
+
+        except (
+            FileNotFoundError,
+            subprocess.SubprocessError
+        ):
+            continue
+
+    # --------------------------------------------------------
+    # If everything failed
+    # --------------------------------------------------------
+
+    if platform.system().lower() == "windows":
+
+        raise Exception(
+            "PDF conversion failed. "
+            "Microsoft Word/docx2pdf or LibreOffice "
+            "could not be found. "
+            f"Details: {windows_error}"
         )
 
-    if not os.path.exists(expected_pdf):
-        raise RuntimeError(
-            "PDF was not created by LibreOffice. "
-            + (result.stderr or result.stdout)
-        )
-
-    if os.path.abspath(expected_pdf) != os.path.abspath(pdf_path):
-        os.replace(expected_pdf, pdf_path)
+    raise Exception(
+        "PDF conversion failed. "
+        "LibreOffice (soffice) is not available "
+        "on the server."
+    )
 
 
-def create_audit_report(summary, details, output_path):
+# ============================================================
+# PDF AUDIT REPORT
+# ============================================================
+
+def create_pdf_report(
+    summary,
+    details,
+    full_path
+):
+
+    # --------------------------------------------------------
+    # LANDSCAPE A4
+    # This prevents the audit table from overlapping.
+    # --------------------------------------------------------
+
     doc = SimpleDocTemplate(
-        output_path,
+        full_path,
         pagesize=landscape(A4),
         rightMargin=10 * mm,
         leftMargin=10 * mm,
         topMargin=10 * mm,
-        bottomMargin=10 * mm,
+        bottomMargin=10 * mm
     )
 
     styles = getSampleStyleSheet()
+
+    title_style = ParagraphStyle(
+        "AuditTitle",
+        parent=styles["Title"],
+        fontSize=18,
+        leading=22,
+        alignment=TA_CENTER,
+        spaceAfter=12
+    )
+
+    normal_style = ParagraphStyle(
+        "AuditNormal",
+        parent=styles["Normal"],
+        fontSize=9,
+        leading=12
+    )
+
+    small_style = ParagraphStyle(
+        "AuditSmall",
+        parent=styles["Normal"],
+        fontSize=7,
+        leading=9
+    )
+
+    header_style = ParagraphStyle(
+        "AuditHeader",
+        parent=styles["Normal"],
+        fontSize=7,
+        leading=8,
+        textColor=colors.white,
+        alignment=TA_CENTER
+    )
+
+    cell_style = ParagraphStyle(
+        "AuditCell",
+        parent=styles["Normal"],
+        fontSize=7,
+        leading=8,
+        alignment=TA_LEFT
+    )
+
     elements = []
+
+    # --------------------------------------------------------
+    # TITLE
+    # --------------------------------------------------------
 
     elements.append(
         Paragraph(
             "eCRF Document Automation Audit Report",
-            styles["Title"]
+            title_style
         )
     )
 
-    elements.append(Spacer(1, 8))
+    # --------------------------------------------------------
+    # SUMMARY
+    # --------------------------------------------------------
 
     for key, value in summary.items():
 
-        if isinstance(value, (datetime, pd.Timestamp)):
-            value = value.strftime("%d/%m/%Y %H:%M:%S")
+        if isinstance(
+            value,
+            (datetime, pd.Timestamp)
+        ):
+
+            value = value.strftime(
+                "%d/%m/%Y %H:%M:%S"
+            )
 
         elements.append(
             Paragraph(
-                f"<b>{key}:</b> {value}",
-                styles["Normal"]
+                f"<b>{key}:</b> "
+                f"{str(value)}",
+                normal_style
             )
         )
 
-    elements.append(Spacer(1, 12))
+    elements.append(
+        Spacer(1, 12)
+    )
+
+    # --------------------------------------------------------
+    # DETAIL TABLE
+    # --------------------------------------------------------
 
     table_data = [
         [
-            "Row",
-            "Subject ID",
-            "File",
-            "Status",
-            "Error",
+            Paragraph(
+                "Row",
+                header_style
+            ),
+
+            Paragraph(
+                "Subject ID",
+                header_style
+            ),
+
+            Paragraph(
+                "File",
+                header_style
+            ),
+
+            Paragraph(
+                "Status",
+                header_style
+            ),
+
+            Paragraph(
+                "Error",
+                header_style
+            )
         ]
     ]
 
     for record in details:
+
         table_data.append(
             [
-                str(record.get("row", "")),
-                str(record.get("subject_id", "")),
-                str(record.get("file", "")),
-                str(record.get("status", "")),
-                str(record.get("error", "")),
+                Paragraph(
+                    str(
+                        record.get(
+                            "row",
+                            ""
+                        )
+                    ),
+                    cell_style
+                ),
+
+                Paragraph(
+                    str(
+                        record.get(
+                            "subject_id",
+                            ""
+                        )
+                    ),
+                    cell_style
+                ),
+
+                Paragraph(
+                    str(
+                        record.get(
+                            "file",
+                            ""
+                        )
+                    ),
+                    cell_style
+                ),
+
+                Paragraph(
+                    str(
+                        record.get(
+                            "status",
+                            ""
+                        )
+                    ),
+                    cell_style
+                ),
+
+                Paragraph(
+                    str(
+                        record.get(
+                            "error",
+                            ""
+                        )
+                    ),
+                    cell_style
+                )
             ]
         )
 
+    # --------------------------------------------------------
+    # COLUMN WIDTHS
+    # --------------------------------------------------------
+
+    col_widths = [
+        18 * mm,
+        35 * mm,
+        95 * mm,
+        28 * mm,
+        90 * mm
+    ]
+
     table = Table(
         table_data,
-        repeatRows=1,
-        colWidths=[
-            15 * mm,
-            30 * mm,
-            75 * mm,
-            25 * mm,
-            110 * mm,
-        ],
+        colWidths=col_widths,
+        repeatRows=1
     )
 
     table.setStyle(
@@ -308,600 +995,1205 @@ def create_audit_report(summary, details, output_path):
                     "BACKGROUND",
                     (0, 0),
                     (-1, 0),
-                    colors.grey,
+                    colors.grey
                 ),
+
                 (
                     "TEXTCOLOR",
                     (0, 0),
                     (-1, 0),
-                    colors.white,
+                    colors.white
                 ),
+
                 (
                     "GRID",
                     (0, 0),
                     (-1, -1),
                     0.5,
-                    colors.black,
+                    colors.black
                 ),
+
                 (
                     "VALIGN",
                     (0, 0),
                     (-1, -1),
-                    "TOP",
+                    "TOP"
                 ),
+
                 (
-                    "FONTSIZE",
+                    "LEFTPADDING",
                     (0, 0),
                     (-1, -1),
-                    7,
+                    4
                 ),
+
+                (
+                    "RIGHTPADDING",
+                    (0, 0),
+                    (-1, -1),
+                    4
+                ),
+
+                (
+                    "TOPPADDING",
+                    (0, 0),
+                    (-1, -1),
+                    4
+                ),
+
+                (
+                    "BOTTOMPADDING",
+                    (0, 0),
+                    (-1, -1),
+                    4
+                )
             ]
         )
     )
 
-    elements.append(table)
-    elements.append(Spacer(1, 15))
+    elements.append(
+        table
+    )
+
+    elements.append(
+        Spacer(1, 20)
+    )
+
+    # --------------------------------------------------------
+    # AUTHORIZATION
+    # --------------------------------------------------------
 
     elements.append(
         Paragraph(
             "<b>Authorized By:</b>",
-            styles["Normal"]
+            normal_style
         )
     )
 
-    signature_path = os.path.join(
-        os.path.dirname(output_path),
-        "signature.png"
+    elements.append(
+        Spacer(1, 6)
     )
-
-    if os.path.exists(signature_path):
-        elements.append(
-            Image(
-                signature_path,
-                width=45 * mm,
-                height=18 * mm,
-            )
-        )
-    else:
-        elements.append(
-            Paragraph(
-                "Signature not available",
-                styles["Normal"]
-            )
-        )
 
     elements.append(
         Paragraph(
             "Name: Linu Thommi",
-            styles["Normal"]
+            normal_style
         )
     )
 
     elements.append(
         Paragraph(
             "Role: CTO",
-            styles["Normal"]
+            normal_style
         )
     )
 
     elements.append(
         Paragraph(
-            f"Date: {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}",
-            styles["Normal"]
+            "Date: "
+            + datetime.now().strftime(
+                "%d/%m/%Y %H:%M:%S"
+            ),
+            normal_style
         )
     )
 
-    elements.append(Spacer(1, 10))
+    elements.append(
+        Spacer(1, 12)
+    )
 
     elements.append(
         Paragraph(
             "System-generated audit report.",
-            styles["Italic"]
+            small_style
         )
     )
 
-    doc.build(elements)
+    # --------------------------------------------------------
+    # BUILD
+    # --------------------------------------------------------
+
+    doc.build(
+        elements
+    )
 
 
-def create_zip_package(
+# ============================================================
+# GENERATE PACKAGE
+# ============================================================
+
+def generate_package(
     excel_bytes,
     excel_filename,
     template_bytes,
     template_filename,
-    generated_files,
-    audit_report_path,
-    signature_bytes=None,
+    selected_indices
 ):
-    package_buffer = io.BytesIO()
 
-    with zipfile.ZipFile(
-        package_buffer,
-        "w",
-        zipfile.ZIP_DEFLATED
-    ) as z:
+    process_start = datetime.now()
 
-        # Generated PDFs
-        for pdf_path in generated_files:
-            z.write(
-                pdf_path,
-                arcname=os.path.join(
-                    "outputs",
-                    os.path.basename(pdf_path)
-                )
-            )
+    # --------------------------------------------------------
+    # CREATE TEMP WORK DIRECTORY
+    # --------------------------------------------------------
 
-        # Audit report
-        z.write(
-            audit_report_path,
-            arcname="logs/audit_report.pdf"
+    work_dir = tempfile.mkdtemp(
+        prefix="ecrf_"
+    )
+
+    try:
+
+        # ----------------------------------------------------
+        # INPUT DIRECTORY
+        # ----------------------------------------------------
+
+        input_dir = os.path.join(
+            work_dir,
+            "Input_Files"
         )
 
-        # Input Excel
-        z.writestr(
-            os.path.join(
-                "uploads",
-                safe_filename(excel_filename)
-            ),
-            excel_bytes
+        word_dir = os.path.join(
+            work_dir,
+            "Word_Documents"
         )
 
-        # Input Word template
-        z.writestr(
-            os.path.join(
-                "uploads",
-                safe_filename(template_filename)
-            ),
-            template_bytes
+        pdf_dir = os.path.join(
+            work_dir,
+            "PDF_Documents"
         )
 
-        # Signature if uploaded
-        if signature_bytes:
-            z.writestr(
-                "assets/signature.png",
-                signature_bytes
+        audit_dir = os.path.join(
+            work_dir,
+            "Audit_Report"
+        )
+
+        os.makedirs(
+            input_dir,
+            exist_ok=True
+        )
+
+        os.makedirs(
+            word_dir,
+            exist_ok=True
+        )
+
+        os.makedirs(
+            pdf_dir,
+            exist_ok=True
+        )
+
+        os.makedirs(
+            audit_dir,
+            exist_ok=True
+        )
+
+        # ----------------------------------------------------
+        # SAVE INPUT FILES
+        # ----------------------------------------------------
+
+        excel_input_path = os.path.join(
+            input_dir,
+            safe_filename(
+                excel_filename
+            )
+        )
+
+        template_input_path = os.path.join(
+            input_dir,
+            safe_filename(
+                template_filename
+            )
+        )
+
+        with open(
+            excel_input_path,
+            "wb"
+        ) as f:
+
+            f.write(
+                excel_bytes
             )
 
-    package_buffer.seek(0)
-    return package_buffer.getvalue()
+        with open(
+            template_input_path,
+            "wb"
+        ) as f:
 
+            f.write(
+                template_bytes
+            )
 
-def process_records(
-    df,
-    selected_indices,
-    template_bytes,
-    work_dir,
-):
-    output_dir = os.path.join(work_dir, "outputs")
-    os.makedirs(output_dir, exist_ok=True)
+        # ----------------------------------------------------
+        # READ EXCEL
+        # ----------------------------------------------------
 
-    generated_files = []
-    records = []
+        df = pd.read_excel(
+            io.BytesIO(
+                excel_bytes
+            )
+        )
 
-    start_time = datetime.now()
-    success = 0
-    failure = 0
+        # ----------------------------------------------------
+        # SUBJECT ID CHECK
+        # ----------------------------------------------------
 
-    for index in selected_indices:
+        if "subject_id" not in df.columns:
 
-        data = df.iloc[index].to_dict()
+            raise Exception(
+                "Excel must contain "
+                "'subject_id' column."
+            )
 
-        status = "Success"
-        error = ""
-        pdf_filename = ""
-        subject_id = ""
+        records = []
 
-        try:
-            raw_subject_id = data.get("subject_id")
+        generated_word_files = []
 
-            if raw_subject_id is None or pd.isna(raw_subject_id):
-                raise Exception(
-                    f"Missing subject_id at Excel row {index + 2}"
+        generated_pdf_files = []
+
+        success = 0
+        failure = 0
+
+        # ----------------------------------------------------
+        # PROCESS SELECTED ROWS ONLY
+        # ----------------------------------------------------
+
+        for index in selected_indices:
+
+            row = df.iloc[index]
+
+            data = row.to_dict()
+
+            status = "Success"
+
+            error = ""
+
+            subject_id = ""
+
+            word_filename = ""
+
+            pdf_filename = ""
+
+            try:
+
+                # --------------------------------------------
+                # SUBJECT ID
+                # --------------------------------------------
+
+                raw_subject_id = data.get(
+                    "subject_id"
                 )
 
-            subject_id = str(raw_subject_id).strip()
+                if (
+                    raw_subject_id is None
+                    or pd.isna(raw_subject_id)
+                ):
 
-            if not subject_id:
-                raise Exception(
-                    f"Missing subject_id at Excel row {index + 2}"
+                    raise Exception(
+                        f"Missing subject_id "
+                        f"at Excel row {index + 2}"
+                    )
+
+                subject_id = str(
+                    raw_subject_id
+                ).strip()
+
+                if not subject_id:
+
+                    raise Exception(
+                        f"Missing subject_id "
+                        f"at Excel row {index + 2}"
+                    )
+
+                subject_id = safe_filename(
+                    subject_id
                 )
 
-            subject_id = safe_filename(subject_id)
+                # --------------------------------------------
+                # DATE AND TIME
+                # --------------------------------------------
 
-            timestamp = datetime.now().strftime(
-                "%Y%m%d_%H%M%S_%f"
-            )
-
-            pdf_filename = (
-                f"{subject_id}_{timestamp}.pdf"
-            )
-
-            pdf_path = os.path.join(
-                output_dir,
-                pdf_filename
-            )
-
-            # Create a fresh DOCX for each record
-            template_path = os.path.join(
-                work_dir,
-                "template.docx"
-            )
-
-            with open(template_path, "wb") as f:
-                f.write(template_bytes)
-
-            doc = Document(template_path)
-
-            replace_placeholders(
-                doc,
-                data
-            )
-
-            temp_docx = os.path.join(
-                work_dir,
-                f"{subject_id}_{timestamp}.docx"
-            )
-
-            doc.save(temp_docx)
-
-            convert_docx_to_pdf(
-                temp_docx,
-                pdf_path
-            )
-
-            if not os.path.exists(pdf_path):
-                raise Exception(
-                    "PDF conversion failed."
+                timestamp = datetime.now().strftime(
+                    "%Y%m%d_%H%M%S"
                 )
 
-            generated_files.append(pdf_path)
-            success += 1
+                base_filename = (
+                    f"{subject_id}_"
+                    f"{timestamp}"
+                )
 
-        except Exception as e:
-            status = "Failed"
-            error = str(e)
-            failure += 1
+                # --------------------------------------------
+                # CHECK DUPLICATE FILE NAME
+                # --------------------------------------------
 
-        records.append(
-            {
-                "row": index + 2,
-                "subject_id": subject_id,
-                "file": (
+                word_filename = (
+                    f"{base_filename}.docx"
+                )
+
+                pdf_filename = (
+                    f"{base_filename}.pdf"
+                )
+
+                counter = 1
+
+                while (
+                    os.path.exists(
+                        os.path.join(
+                            word_dir,
+                            word_filename
+                        )
+                    )
+                    or
+                    os.path.exists(
+                        os.path.join(
+                            pdf_dir,
+                            pdf_filename
+                        )
+                    )
+                ):
+
+                    word_filename = (
+                        f"{base_filename}_"
+                        f"{counter:02d}.docx"
+                    )
+
+                    pdf_filename = (
+                        f"{base_filename}_"
+                        f"{counter:02d}.pdf"
+                    )
+
+                    counter += 1
+
+                # --------------------------------------------
+                # WORD DOCUMENT
+                # --------------------------------------------
+
+                doc = Document(
+                    template_input_path
+                )
+
+                replace_placeholders(
+                    doc,
+                    data
+                )
+
+                word_path = os.path.join(
+                    word_dir,
+                    word_filename
+                )
+
+                doc.save(
+                    word_path
+                )
+
+                # --------------------------------------------
+                # PDF DOCUMENT
+                # --------------------------------------------
+
+                pdf_path = os.path.join(
+                    pdf_dir,
                     pdf_filename
-                    if status == "Success"
-                    else ""
-                ),
-                "status": status,
-                "error": error,
-            }
+                )
+
+                convert_docx_to_pdf(
+                    word_path,
+                    pdf_path
+                )
+
+                if not os.path.exists(
+                    pdf_path
+                ):
+
+                    raise Exception(
+                        "PDF conversion failed."
+                    )
+
+                generated_word_files.append(
+                    word_path
+                )
+
+                generated_pdf_files.append(
+                    pdf_path
+                )
+
+                success += 1
+
+            except Exception as e:
+
+                status = "Failed"
+
+                error = str(e)
+
+                failure += 1
+
+            # -----------------------------------------------
+            # AUDIT RECORD
+            # -----------------------------------------------
+
+            records.append(
+                {
+                    "row": index + 2,
+
+                    "subject_id": subject_id,
+
+                    "file": (
+                        pdf_filename
+                        if status == "Success"
+                        else ""
+                    ),
+
+                    "status": status,
+
+                    "error": error
+                }
+            )
+
+        # ----------------------------------------------------
+        # END TIME
+        # ----------------------------------------------------
+
+        process_end = datetime.now()
+
+        # ----------------------------------------------------
+        # SUMMARY
+        # ----------------------------------------------------
+
+        summary = {
+
+            "User": "Streamlit User",
+
+            "Start Time": process_start,
+
+            "End Time": process_end,
+
+            "Total Selected Records": len(
+                selected_indices
+            ),
+
+            "Success": success,
+
+            "Failure": failure
+        }
+
+        # ----------------------------------------------------
+        # AUDIT REPORT
+        # ----------------------------------------------------
+
+        audit_path = os.path.join(
+            audit_dir,
+            "audit_report.pdf"
         )
 
-    end_time = datetime.now()
+        create_pdf_report(
+            summary,
+            records,
+            audit_path
+        )
 
-    summary = {
-        "User": st.session_state.get(
-            "username",
-            "Unknown User"
-        ),
-        "Start Time": start_time,
-        "End Time": end_time,
-        "Total Selected Records": len(selected_indices),
-        "Success": success,
-        "Failure": failure,
-    }
+        # ----------------------------------------------------
+        # ZIP FILE
+        # ----------------------------------------------------
 
-    return summary, records, generated_files
+        package_timestamp = datetime.now().strftime(
+            "%Y%m%d_%H%M%S"
+        )
+
+        zip_filename = (
+            f"eCRF_Document_Package_"
+            f"{package_timestamp}.zip"
+        )
+
+        zip_path = os.path.join(
+            work_dir,
+            zip_filename
+        )
+
+        # ----------------------------------------------------
+        # CREATE ZIP
+        # ----------------------------------------------------
+
+        with zipfile.ZipFile(
+            zip_path,
+            "w",
+            zipfile.ZIP_DEFLATED
+        ) as z:
+
+            for root, dirs, files in os.walk(
+                work_dir
+            ):
+
+                # Do not include the ZIP itself
+
+                if root == work_dir:
+
+                    files = [
+                        f
+                        for f in files
+                        if f != zip_filename
+                    ]
+
+                for file in files:
+
+                    full_path = os.path.join(
+                        root,
+                        file
+                    )
+
+                    relative_path = os.path.relpath(
+                        full_path,
+                        work_dir
+                    )
+
+                    z.write(
+                        full_path,
+                        relative_path
+                    )
+
+        # ----------------------------------------------------
+        # READ ZIP INTO MEMORY
+        # ----------------------------------------------------
+
+        with open(
+            zip_path,
+            "rb"
+        ) as f:
+
+            zip_bytes = f.read()
+
+        return (
+            zip_bytes,
+            zip_filename,
+            summary,
+            records
+        )
+
+    finally:
+
+        # ----------------------------------------------------
+        # CLEAN TEMP FILES
+        # ----------------------------------------------------
+
+        shutil.rmtree(
+            work_dir,
+            ignore_errors=True
+        )
 
 
 # ============================================================
-# STREAMLIT UI
+# RESET GENERATED PACKAGE
 # ============================================================
 
-st.title("📄 eCRF Document Automation System")
+def clear_generated_package():
 
-st.caption(
-    "Excel → Word Template → Individual PDFs → Audit Report → ZIP"
+    st.session_state.generated = False
+
+    st.session_state.zip_bytes = None
+
+    st.session_state.zip_filename = None
+
+    st.session_state.summary = None
+
+    st.session_state.audit_records = []
+
+    st.session_state.generation_id = None
+
+
+# ============================================================
+# HEADER
+# ============================================================
+
+st.markdown(
+    """
+    <div style="
+        font-size:30px;
+        font-weight:700;
+        color:#f5f5f5;
+    ">
+        eCRF Document Automation System
+    </div>
+    """,
+    unsafe_allow_html=True
 )
 
-with st.sidebar:
-    st.header("User Information")
 
-    username = st.text_input(
-        "Username",
-        value="",
-        placeholder="Enter your name"
-    )
+# ============================================================
+# 1. UPLOAD FILES
+# ============================================================
 
-    st.session_state["username"] = (
-        username.strip()
-        if username.strip()
-        else "Unknown User"
-    )
+st.markdown(
+    "### 1. Upload Files"
+)
 
-    st.divider()
-
-    st.info(
-        "Word placeholders:\n"
-        "{{subject_id}}\n\n"
-        "MCQ placeholders:\n"
-        "{{MCQ:Gender:Male}}\n"
-        "{{MCQ:Gender:Female}}"
-    )
-
-st.subheader("1. Upload Files")
-
-col1, col2 = st.columns(2)
+col1, col2 = st.columns(
+    2,
+    gap="medium"
+)
 
 with col1:
+
     excel_file = st.file_uploader(
-        "Upload Excel file",
-        type=["xlsx", "xls"],
-        key="excel_upload"
+        "Upload Excel File",
+        type=[
+            "xlsx",
+            "xls"
+        ],
+        key="excel_uploader"
     )
 
 with col2:
+
     template_file = st.file_uploader(
-        "Upload Word template",
-        type=["docx"],
-        key="template_upload"
+        "Upload Word Template",
+        type=[
+            "docx"
+        ],
+        key="template_uploader"
     )
 
-st.subheader("2. Optional Signature")
 
-signature_file = st.file_uploader(
-    "Upload signature PNG",
-    type=["png"],
-    key="signature_upload"
+# ============================================================
+# STORE UPLOADS
+# ============================================================
+
+if excel_file is not None:
+
+    new_excel_bytes = excel_file.getvalue()
+
+    if (
+        st.session_state.excel_filename
+        != excel_file.name
+        or
+        st.session_state.excel_bytes
+        != new_excel_bytes
+    ):
+
+        st.session_state.excel_filename = (
+            excel_file.name
+        )
+
+        st.session_state.excel_bytes = (
+            new_excel_bytes
+        )
+
+        # Read Excel
+
+        try:
+
+            loaded_df = pd.read_excel(
+                io.BytesIO(
+                    new_excel_bytes
+                )
+            )
+
+            st.session_state.dataframe = (
+                loaded_df
+            )
+
+            st.session_state.selected_rows = []
+
+            clear_generated_package()
+
+        except Exception as e:
+
+            st.error(
+                "Unable to read Excel file: "
+                + str(e)
+            )
+
+            st.session_state.dataframe = None
+
+
+if template_file is not None:
+
+    new_template_bytes = (
+        template_file.getvalue()
+    )
+
+    if (
+        st.session_state.template_filename
+        != template_file.name
+        or
+        st.session_state.template_bytes
+        != new_template_bytes
+    ):
+
+        st.session_state.template_filename = (
+            template_file.name
+        )
+
+        st.session_state.template_bytes = (
+            new_template_bytes
+        )
+
+        clear_generated_package()
+
+
+# ============================================================
+# FILE VALIDATION
+# ============================================================
+
+if (
+    st.session_state.dataframe is not None
+    and
+    st.session_state.excel_bytes is not None
+):
+
+    df = st.session_state.dataframe
+
+    st.success(
+        f"Excel loaded successfully: "
+        f"{len(df)} records, "
+        f"{len(df.columns)} columns."
+    )
+
+
+# ============================================================
+# 3. EXCEL DATA PREVIEW
+# ============================================================
+
+if st.session_state.dataframe is not None:
+
+    df = st.session_state.dataframe
+
+    st.markdown(
+        "### 3. Excel Data Preview"
+    )
+
+    st.dataframe(
+        df,
+        use_container_width=True,
+        hide_index=False,
+        height=250
+    )
+
+
+# ============================================================
+# 4. SELECT RECORDS
+# ============================================================
+
+if st.session_state.dataframe is not None:
+
+    df = st.session_state.dataframe.copy()
+
+    st.markdown(
+        "### 4. Select Records"
+    )
+
+    # --------------------------------------------------------
+    # Create selection dataframe
+    # --------------------------------------------------------
+
+    selection_df = df.copy()
+
+    selection_df.insert(
+        0,
+        "Select",
+        selection_df.index.isin(
+            st.session_state.selected_rows
+        )
+    )
+
+    action_col1, action_col2 = st.columns(
+        2,
+        gap="small"
+    )
+
+    with action_col1:
+
+        if st.button(
+            "Select All",
+            use_container_width=True,
+            key="select_all_records_button"
+        ):
+
+            st.session_state.selected_rows = (
+                df.index.tolist()
+            )
+
+            st.rerun()
+
+    with action_col2:
+
+        if st.button(
+            "Clear",
+            use_container_width=True,
+            key="clear_selected_records_button"
+        ):
+
+            st.session_state.selected_rows = []
+
+            st.rerun()
+
+    # --------------------------------------------------------
+    # Unique editor key based on uploaded Excel
+    # --------------------------------------------------------
+
+    excel_key = (
+        str(
+            hash(
+                st.session_state.excel_bytes
+            )
+        )
+    )
+
+    editor_key = (
+        "record_selector_"
+        + excel_key
+    )
+
+    edited_df = st.data_editor(
+        selection_df,
+        use_container_width=True,
+        hide_index=False,
+        num_rows="fixed",
+        key=editor_key,
+        column_config={
+            "Select": st.column_config.CheckboxColumn(
+                "Select",
+                help="Select records to generate",
+                default=False
+            )
+        }
+    )
+
+    # --------------------------------------------------------
+    # Selected rows
+    # --------------------------------------------------------
+
+    selected_mask = (
+        edited_df["Select"]
+        == True
+    )
+
+    selected_indices = (
+        edited_df.index[
+            selected_mask
+        ].tolist()
+    )
+
+    st.session_state.selected_rows = (
+        selected_indices
+    )
+
+    selected_count = len(
+        selected_indices
+    )
+
+    total_count = len(
+        df
+    )
+
+    st.markdown(
+        f"""
+        <div style="
+            color:#f5f5f5;
+            font-weight:600;
+            margin-top:8px;
+            margin-bottom:8px;
+        ">
+            Selected records: {selected_count}/{total_count}
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
+    # --------------------------------------------------------
+    # Show selected subject IDs
+    # --------------------------------------------------------
+
+    with st.expander(
+        "View selected Subject IDs"
+    ):
+
+        if selected_count == 0:
+
+            st.write(
+                "No records selected."
+            )
+
+        else:
+
+            selected_subjects = []
+
+            for idx in selected_indices:
+
+                selected_subjects.append(
+                    str(
+                        df.iloc[idx][
+                            "subject_id"
+                        ]
+                    )
+                )
+
+            st.write(
+                ", ".join(
+                    selected_subjects
+                )
+            )
+
+
+# ============================================================
+# 5. GENERATE DOCUMENTS
+# ============================================================
+
+st.markdown(
+    "### 5. Generate Documents"
 )
 
-if excel_file:
+can_generate = (
+    st.session_state.excel_bytes is not None
+    and
+    st.session_state.template_bytes is not None
+    and
+    st.session_state.dataframe is not None
+    and
+    len(
+        st.session_state.selected_rows
+    ) > 0
+)
+
+
+if not can_generate:
+
+    st.info(
+        "Upload an Excel file, upload a Word template, "
+        "and select at least one record."
+    )
+
+
+if st.button(
+    "⚡ Generate Documents",
+    type="primary",
+    use_container_width=True,
+    disabled=not can_generate,
+    key="generate_documents_button"
+):
+
+    # --------------------------------------------------------
+    # Clear old package before new generation
+    # --------------------------------------------------------
+
+    clear_generated_package()
 
     try:
-        excel_bytes = excel_file.getvalue()
 
-        df = pd.read_excel(
-            io.BytesIO(excel_bytes)
+        with st.spinner(
+            "Generating Word documents, PDFs and audit report..."
+        ):
+
+            (
+                zip_bytes,
+                zip_filename,
+                summary,
+                audit_records
+            ) = generate_package(
+
+                st.session_state.excel_bytes,
+
+                st.session_state.excel_filename,
+
+                st.session_state.template_bytes,
+
+                st.session_state.template_filename,
+
+                st.session_state.selected_rows
+            )
+
+        clear_persistent_storage()
+
+        # ----------------------------------------------------
+        # IMPORTANT:
+        # Store everything in session state.
+        # Therefore download does not depend on the
+        # st.button() state.
+        # ----------------------------------------------------
+
+        st.session_state.zip_bytes = (
+            zip_bytes
+        )
+
+        st.session_state.zip_filename = (
+            zip_filename
+        )
+
+        st.session_state.summary = (
+            summary
+        )
+
+        st.session_state.audit_records = (
+            audit_records
+        )
+
+        st.session_state.generated = True
+
+        st.session_state.generation_id = (
+            uuid.uuid4().hex
         )
 
         st.success(
-            f"Excel loaded successfully: "
-            f"{len(df)} records, {len(df.columns)} columns."
+            "Documents generated successfully."
         )
 
-        if "subject_id" not in df.columns:
-            st.error(
-                "Excel must contain a 'subject_id' column."
-            )
-            st.stop()
+    except Exception as e:
 
-        st.subheader("3. Excel Data Preview")
-
-        st.dataframe(
-            df,
-            use_container_width=True,
-            height=300,
+        st.error(
+            "An error occurred while processing "
+            "the Excel file: "
+            + str(e)
         )
 
-        st.subheader("4. Select Records")
-
-        # Add a selection column without modifying original data
-        display_df = df.copy()
-
-        display_df.insert(
-            0,
-            "Select",
-            True
-        )
-
-        selected_table = st.data_editor(
-            display_df,
-            use_container_width=True,
-            height=400,
-            hide_index=True,
-            column_config={
-                "Select": st.column_config.CheckboxColumn(
-                    "Select",
-                    default=True,
-                )
-            },
-            disabled=[
-                col
-                for col in display_df.columns
-                if col != "Select"
-            ],
-            key="record_selector",
-        )
-
-        selected_indices = selected_table.index[
-            selected_table["Select"]
-        ].tolist()
-
-        st.write(
-            f"**Selected records: {len(selected_indices)} "
-            f"/ {len(df)}**"
-        )
-
-        if selected_indices:
-            selected_subjects = [
-                str(df.iloc[i]["subject_id"])
-                for i in selected_indices
-            ]
-
-            with st.expander(
-                "View selected Subject IDs"
-            ):
-                st.write(
-                    ", ".join(selected_subjects)
-                )
-
-        st.subheader("5. Generate Documents")
-
-        can_process = (
-            template_file is not None
-            and len(selected_indices) > 0
-        )
-
-        if not template_file:
-            st.warning(
-                "Please upload a Word template."
-            )
-
-        if len(selected_indices) == 0:
-            st.warning(
-                "Please select at least one record."
-            )
-
-        if st.button(
-            "🚀 Generate Documents",
-            type="primary",
-            disabled=not can_process,
-            use_container_width=True,
-        ):
-
-            with st.spinner(
-                "Generating documents. Please wait..."
-            ):
-
-                with tempfile.TemporaryDirectory() as work_dir:
-
-                    signature_bytes = (
-                        signature_file.getvalue()
-                        if signature_file
-                        else None
-                    )
-
-                    summary, records, generated_files = (
-                        process_records(
-                            df=df,
-                            selected_indices=selected_indices,
-                            template_bytes=template_file.getvalue(),
-                            work_dir=work_dir,
-                        )
-                    )
-
-                    # Prepare audit report
-                    audit_dir = os.path.join(
-                        work_dir,
-                        "logs"
-                    )
-                    os.makedirs(
-                        audit_dir,
-                        exist_ok=True
-                    )
-
-                    # Copy signature for audit report
-                    if signature_bytes:
-                        signature_path = os.path.join(
-                            audit_dir,
-                            "signature.png"
-                        )
-
-                        with open(
-                            signature_path,
-                            "wb"
-                        ) as f:
-                            f.write(signature_bytes)
-
-                    audit_report_path = os.path.join(
-                        audit_dir,
-                        "audit_report.pdf"
-                    )
-
-                    create_audit_report(
-                        summary,
-                        records,
-                        audit_report_path,
-                    )
-
-                    zip_bytes = create_zip_package(
-                        excel_bytes=excel_bytes,
-                        excel_filename=excel_file.name,
-                        template_bytes=template_file.getvalue(),
-                        template_filename=template_file.name,
-                        generated_files=generated_files,
-                        audit_report_path=audit_report_path,
-                        signature_bytes=signature_bytes,
-                    )
-
-                    st.session_state[
-                        "generated_zip"
-                    ] = zip_bytes
-
-                    st.session_state[
-                        "summary"
-                    ] = summary
-
-                    st.session_state[
-                        "records"
-                    ] = records
-
-                    st.session_state[
-                        "generated_count"
-                    ] = len(generated_files)
-
-            st.success(
-                "Document generation completed."
-            )
-
-    except Exception as error:
-        st.error(f"An error occurred while processing the Excel file: {error}")
 
 # ============================================================
 # RESULTS
 # ============================================================
 
-if "summary" in st.session_state:
+if (
+    st.session_state.generated
+    and
+    st.session_state.zip_bytes is not None
+):
 
-    st.subheader("6. Processing Summary")
+    st.markdown(
+        "---"
+    )
 
-    summary = st.session_state["summary"]
+    st.markdown(
+        "### 6. Generation Summary"
+    )
 
-    c1, c2, c3 = st.columns(3)
+    summary = (
+        st.session_state.summary
+    )
+
+    # --------------------------------------------------------
+    # SUMMARY METRICS
+    # --------------------------------------------------------
+
+    c1, c2, c3, c4 = st.columns(
+        4
+    )
 
     with c1:
-        st.metric(
-            "Selected",
-            summary["Total Selected Records"]
+
+        st.markdown(
+            f"""
+            <div class="summary-box">
+                <div class="summary-title">
+                    Selected Records
+                </div>
+                <div class="summary-value">
+                    {summary["Total Selected Records"]}
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True
         )
 
     with c2:
-        st.metric(
-            "Success",
-            summary["Success"]
+
+        st.markdown(
+            f"""
+            <div class="summary-box">
+                <div class="summary-title">
+                    Successful
+                </div>
+                <div class="summary-value">
+                    {summary["Success"]}
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True
         )
 
     with c3:
-        st.metric(
-            "Failure",
-            summary["Failure"]
+
+        st.markdown(
+            f"""
+            <div class="summary-box">
+                <div class="summary-title">
+                    Failed
+                </div>
+                <div class="summary-value">
+                    {summary["Failure"]}
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True
         )
 
-    st.subheader("7. Audit Results")
+    with c4:
 
-    result_df = pd.DataFrame(
-        st.session_state["records"]
+        st.markdown(
+            f"""
+            <div class="summary-box">
+                <div class="summary-title">
+                    Package
+                </div>
+                <div class="summary-value">
+                    ZIP
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+
+
+    # ========================================================
+    # DOWNLOAD ZIP
+    # ========================================================
+
+    st.markdown(
+        "### 7. Download Package"
     )
-
-    st.dataframe(
-        result_df,
-        use_container_width=True,
-        hide_index=True,
-    )
-
-    st.subheader("8. Download Package")
 
     st.download_button(
-        label="⬇️ Download ZIP Package",
-        data=st.session_state["generated_zip"],
-        file_name=(
-            f"eCRF_document_package_"
-            f"{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip"
-        ),
+
+        label="⬇ Download Complete ZIP Package",
+
+        data=st.session_state.zip_bytes,
+
+        file_name=st.session_state.zip_filename,
+
         mime="application/zip",
+
+        key=(
+            "download_zip_"
+            + str(
+                st.session_state.generation_id
+            )
+        ),
+
         type="primary",
+
         use_container_width=True,
+
+        # IMPORTANT:
+        # This prevents Streamlit from rerunning
+        # the application when the user downloads.
+        on_click="ignore"
     )
 
+
     st.caption(
-        "The ZIP contains generated PDFs, audit_report.pdf, "
-        "and the original uploaded Excel/Word files."
+        "The ZIP contains the Word documents, "
+        "PDF documents, audit report and input files. "
+        "The audit report does not need to be downloaded separately."
     )
+
+
+# ============================================================
+# FOOTER
+# ============================================================
+
+st.markdown(
+    """
+    <div style="
+        text-align:center;
+        color:#9da3af;
+        font-size:12px;
+        margin-top:40px;
+        padding:16px 0;
+    ">
+        Copyright ©2026 Dr. Klinisch.
+    </div>
+    """,
+    unsafe_allow_html=True
+)
