@@ -5,7 +5,7 @@ ENV PYTHONUNBUFFERED=1
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
-       libreoffice \
+       libreoffice-writer \
        fonts-dejavu \
     && rm -rf /var/lib/apt/lists/*
 

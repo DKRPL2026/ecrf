@@ -695,10 +695,22 @@ def convert_docx_to_pdf(
     # METHOD 2: LibreOffice / soffice
     # --------------------------------------------------------
 
-    soffice_candidates = [
+    soffice_candidates = []
+
+    for candidate in (
         "soffice",
-        "libreoffice"
-    ]
+        "libreoffice",
+        "/usr/bin/soffice",
+        "/usr/bin/libreoffice",
+        "/usr/lib/libreoffice/program/soffice"
+    ):
+
+        resolved_candidate = shutil.which(candidate) or candidate
+
+        if resolved_candidate not in soffice_candidates:
+            soffice_candidates.append(resolved_candidate)
+
+    conversion_errors = []
 
     for soffice in soffice_candidates:
 
@@ -708,8 +720,9 @@ def convert_docx_to_pdf(
                 [
                     soffice,
                     "--headless",
+                    "-env:UserInstallation=file:///tmp/lo-profile",
                     "--convert-to",
-                    "pdf",
+                    "pdf:writer_pdf_Export",
                     "--outdir",
                     output_dir,
                     docx_path
@@ -752,8 +765,14 @@ def convert_docx_to_pdf(
         except (
             FileNotFoundError,
             subprocess.SubprocessError
-        ):
+        ) as e:
+            conversion_errors.append(f"{soffice}: {e}")
             continue
+
+        if result.returncode != 0:
+            conversion_errors.append(
+                f"{soffice}: {result.stderr.strip() or result.stdout.strip()}"
+            )
 
     # --------------------------------------------------------
     # If everything failed
@@ -770,8 +789,9 @@ def convert_docx_to_pdf(
 
     raise Exception(
         "PDF conversion failed. "
-        "LibreOffice (soffice) is not available "
-        "on the server."
+        "LibreOffice (soffice) is not available or could not convert the DOCX "
+        "on the server. "
+        f"Details: {'; '.join(conversion_errors) or 'no executable was found.'}"
     )
 
 
