@@ -31,6 +31,8 @@ from reportlab.lib.pagesizes import A4, landscape
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.enums import TA_CENTER, TA_LEFT
 from reportlab.lib.units import mm
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
 
 
 # ============================================================
@@ -668,11 +670,37 @@ def render_docx_as_pdf(
         bottomMargin=18 * mm
     )
 
+    font_name = "Helvetica"
+
+    for font_path in (
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "C:/Windows/Fonts/DejaVuSans.ttf",
+        "C:/Windows/Fonts/arial.ttf"
+    ):
+
+        if os.path.exists(font_path):
+
+            try:
+
+                pdfmetrics.registerFont(
+                    TTFont(
+                        "TemplateUnicodeFont",
+                        font_path
+                    )
+                )
+
+                font_name = "TemplateUnicodeFont"
+                break
+
+            except Exception:
+                continue
+
     styles = getSampleStyleSheet()
 
     body_style = ParagraphStyle(
         "GeneratedDocumentBody",
         parent=styles["BodyText"],
+        fontName=font_name,
         fontSize=10,
         leading=14,
         spaceAfter=7
@@ -681,6 +709,7 @@ def render_docx_as_pdf(
     cell_style = ParagraphStyle(
         "GeneratedDocumentCell",
         parent=body_style,
+        fontName=font_name,
         fontSize=8,
         leading=10,
         spaceAfter=0
@@ -689,6 +718,10 @@ def render_docx_as_pdf(
     elements = []
 
     def paragraph_text(text):
+
+        if font_name == "Helvetica":
+
+            text = (text or "").replace("☑", "[X]").replace("☐", "[ ]")
 
         return Paragraph(
             escape(text or "").replace("\n", "<br/>") or "<br/>",
@@ -763,6 +796,14 @@ def render_docx_as_pdf(
                     paragraph.text
                     for paragraph in cell.paragraphs
                 )
+
+                if font_name == "Helvetica":
+
+                    cell_text = (
+                        cell_text
+                        .replace("☑", "[X]")
+                        .replace("☐", "[ ]")
+                    )
 
                 cells.append(
                     Paragraph(
