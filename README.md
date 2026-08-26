@@ -12,8 +12,8 @@ streamlit run app.py
 Use a Render Web Service with Docker.
 
 Set the service environment to Docker and use the repository `Dockerfile`.
-Do not deploy this app as a Python runtime service: PDF conversion requires
-the system-level LibreOffice Writer package installed by the image.
+Docker provides LibreOffice Writer for the most faithful DOCX-to-PDF layout.
+Python-only deployments also have a basic ReportLab fallback for PDF output.
 
 After changing the Dockerfile, trigger a fresh deploy so Render rebuilds the
 image instead of reusing an older image without LibreOffice.

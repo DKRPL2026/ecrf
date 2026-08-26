@@ -7,6 +7,7 @@ import zipfile
 import tempfile
 import subprocess
 import platform
+from xml.sax.saxutils import escape
 
 import pandas as pd
 import streamlit as st
@@ -14,13 +15,15 @@ import streamlit as st
 from datetime import datetime
 
 from docx import Document
+from docx.oxml.ns import qn
 
 from reportlab.platypus import (
     SimpleDocTemplate,
     Paragraph,
     Spacer,
     Table,
-    TableStyle
+    TableStyle,
+    Image
 )
 
 from reportlab.lib import colors
@@ -647,6 +650,183 @@ def replace_placeholders(
 # DOCX → PDF
 # ============================================================
 
+def render_docx_as_pdf(
+    docx_path,
+    pdf_path
+):
+
+    docx_document = Document(
+        docx_path
+    )
+
+    pdf_document = SimpleDocTemplate(
+        pdf_path,
+        pagesize=A4,
+        rightMargin=18 * mm,
+        leftMargin=18 * mm,
+        topMargin=18 * mm,
+        bottomMargin=18 * mm
+    )
+
+    styles = getSampleStyleSheet()
+
+    body_style = ParagraphStyle(
+        "GeneratedDocumentBody",
+        parent=styles["BodyText"],
+        fontSize=10,
+        leading=14,
+        spaceAfter=7
+    )
+
+    cell_style = ParagraphStyle(
+        "GeneratedDocumentCell",
+        parent=body_style,
+        fontSize=8,
+        leading=10,
+        spaceAfter=0
+    )
+
+    elements = []
+
+    def paragraph_text(text):
+
+        return Paragraph(
+            escape(text or "").replace("\n", "<br/>") or "<br/>",
+            body_style
+        )
+
+    for paragraph in docx_document.paragraphs:
+
+        if paragraph.text.strip():
+            elements.append(
+                paragraph_text(
+                    paragraph.text
+                )
+            )
+
+    available_width = A4[0] - (36 * mm)
+
+    embedded_images = []
+
+    for inline_shape in docx_document.inline_shapes:
+
+        blip_elements = inline_shape._inline.xpath(
+            ".//a:blip"
+        )
+
+        if not blip_elements:
+            continue
+
+        relationship_id = blip_elements[0].get(
+            qn("r:embed")
+        )
+
+        image_part = docx_document.part.related_parts.get(
+            relationship_id
+        )
+
+        if image_part is None:
+            continue
+
+        image_width = inline_shape.width / 12700
+        image_height = inline_shape.height / 12700
+
+        if image_width <= 0 or image_height <= 0:
+            continue
+
+        embedded_images.append(
+            Image(
+                io.BytesIO(image_part.blob),
+                width=image_width,
+                height=image_height
+            )
+        )
+
+    for docx_table in docx_document.tables:
+
+        row_count = len(docx_table.rows)
+
+        column_count = max(
+            (len(row.cells) for row in docx_table.rows),
+            default=1
+        )
+
+        table_data = []
+
+        for row in docx_table.rows:
+
+            cells = []
+
+            for cell in row.cells:
+
+                cell_text = "\n".join(
+                    paragraph.text
+                    for paragraph in cell.paragraphs
+                )
+
+                cells.append(
+                    Paragraph(
+                        escape(cell_text).replace("\n", "<br/>") or "<br/>",
+                        cell_style
+                    )
+                )
+
+            table_data.append(
+                cells + [""] * (column_count - len(cells))
+            )
+
+        if table_data:
+
+            table = Table(
+                table_data,
+                colWidths=[
+                    available_width / column_count
+                ] * column_count,
+                repeatRows=1 if row_count > 1 else 0
+            )
+
+            table.setStyle(
+                TableStyle(
+                    [
+                        ("GRID", (0, 0), (-1, -1), 0.4, colors.grey),
+                        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                        ("LEFTPADDING", (0, 0), (-1, -1), 4),
+                        ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+                        ("TOPPADDING", (0, 0), (-1, -1), 4),
+                        ("BOTTOMPADDING", (0, 0), (-1, -1), 4)
+                    ]
+                )
+            )
+
+            elements.append(table)
+            elements.append(Spacer(1, 8))
+
+    for embedded_image in embedded_images:
+
+        embedded_image._restrictSize(
+            available_width,
+            A4[1] - (36 * mm)
+        )
+
+        elements.append(
+            embedded_image
+        )
+
+        elements.append(
+            Spacer(1, 8)
+        )
+
+    if not elements:
+        elements.append(
+            paragraph_text(
+                "The generated document is empty."
+            )
+        )
+
+    pdf_document.build(
+        elements
+    )
+
 def convert_docx_to_pdf(
     docx_path,
     pdf_path
@@ -773,6 +953,26 @@ def convert_docx_to_pdf(
             conversion_errors.append(
                 f"{soffice}: {result.stderr.strip() or result.stdout.strip()}"
             )
+
+    # --------------------------------------------------------
+    # METHOD 3: Pure Python fallback for Python-only hosts
+    # --------------------------------------------------------
+
+    try:
+
+        render_docx_as_pdf(
+            docx_path,
+            pdf_path
+        )
+
+        if os.path.exists(pdf_path):
+            return
+
+    except Exception as e:
+
+        conversion_errors.append(
+            f"ReportLab fallback: {e}"
+        )
 
     # --------------------------------------------------------
     # If everything failed
