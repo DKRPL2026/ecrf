@@ -112,15 +112,16 @@ st.markdown(
     .stButton > button {
         width: 100%;
         border-radius: 5px;
-        border: 1px solid #444751;
-        background-color: #262934;
+        border: 1px solid #2e9f5b;
+        background-color: #238636;
         color: #ffffff;
         min-height: 38px;
         font-weight: 500;
     }
 
     .stButton > button:hover {
-        border-color: #777b86;
+        border-color: #3fbf6f;
+        background-color: #2ea043;
         color: #ffffff;
     }
 
@@ -129,15 +130,15 @@ st.markdown(
     ------------------------------------------------------ */
 
     div[data-testid="stButton"] button[kind="primary"] {
-        background-color: #ff4b4b;
-        border-color: #ff4b4b;
+        background-color: #238636;
+        border-color: #238636;
         color: white;
         font-weight: 600;
     }
 
     div[data-testid="stButton"] button[kind="primary"]:hover {
-        background-color: #ff3333;
-        border-color: #ff3333;
+        background-color: #2ea043;
+        border-color: #2ea043;
     }
 
     /* ------------------------------------------------------
@@ -145,16 +146,16 @@ st.markdown(
     ------------------------------------------------------ */
 
     div[data-testid="stDownloadButton"] button {
-        background-color: #ff4b4b;
-        border-color: #ff4b4b;
+        background-color: #238636;
+        border-color: #238636;
         color: white;
         font-weight: 600;
         width: 100%;
     }
 
     div[data-testid="stDownloadButton"] button:hover {
-        background-color: #ff3333;
-        border-color: #ff3333;
+        background-color: #2ea043;
+        border-color: #2ea043;
     }
 
     /* ------------------------------------------------------
@@ -275,6 +276,12 @@ PERSISTENT_STORAGE_DIRECTORIES = [
         "output"
     ]
 ]
+
+USER_MANUAL_PATH = os.path.join(
+    os.path.dirname(__file__),
+    "manuals",
+    "eCRF User Manual.pdf"
+)
 
 
 def clear_persistent_storage():
@@ -1873,6 +1880,24 @@ st.markdown(
     """,
     unsafe_allow_html=True
 )
+
+if os.path.isfile(USER_MANUAL_PATH):
+
+    manual_col, _ = st.columns([1, 5])
+
+    with manual_col:
+
+        with open(USER_MANUAL_PATH, "rb") as manual_file:
+
+            st.download_button(
+                label="Download User Manual",
+                data=manual_file.read(),
+                file_name="eCRF_User_Manual.pdf",
+                mime="application/pdf",
+                use_container_width=True,
+                key="download_user_manual_button",
+                on_click="ignore"
+            )
 
 
 # ============================================================
