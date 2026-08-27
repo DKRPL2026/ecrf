@@ -1725,9 +1725,6 @@ def generate_package(
         # ----------------------------------------------------
 
         summary = {
-
-            "User": "Streamlit User",
-
             "Start Time": process_start,
 
             "End Time": process_end,
