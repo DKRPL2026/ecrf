@@ -271,9 +271,11 @@ for key, value in DEFAULT_STATE.items():
 # ============================================================
 
 AUTHORIZED_USERS = {
-    "da@drklinisch.com": "DKRPL@2021",
-    "user2@company.com": "CommonPassword123",
-    "user3@company.com": "CommonPassword123",
+    "da@drklinisch.com": "DKRPL@SM2021",
+    "sitemanagement7@drklinisch.com": "DKRPL@SM2021",
+    "sitemanagement@drklinisch.com": "DKRPL@SM2021",
+    "sitemanagement12@drklinisch.com": "DKRPL@SM2021",
+    "ClinicalCoordinator@drklinisch.com": "DKRPL@SM2021",
 }
 
 
@@ -2629,7 +2631,7 @@ if (
 
     st.download_button(
 
-        label="⬇ Download Complete ZIP Package",
+        label="Download ZIP Package",
 
         data=st.session_state.zip_bytes,
 
@@ -2675,7 +2677,7 @@ st.markdown(
         margin-top:40px;
         padding:16px 0;
     ">
-        Copyright ©2026 Dr. Klinisch. Version  1.0 all rights reserved.
+        Copyright ©2026 Dr. Klinisch. All Rights Reserved Version 1.0.
     </div>
     """,
     unsafe_allow_html=True
