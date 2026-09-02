@@ -304,6 +304,7 @@ AUTHORIZED_USERS = {
     "sitemanagement@drklinisch.com": "DKRPL@SM2021",
     "sitemanagement12@drklinisch.com": "DKRPL@SM2021",
     "clinicalcoordinator@drklinisch.com": "DKRPL@SM2021",
+    "linu@drklinisch.com": "DKRPL@SM2021",
 }
 
 
