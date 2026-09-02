@@ -55,13 +55,40 @@ st.markdown(
     """
     <style>
 
+    :root {
+        --app-bg: #0e1117;
+        --app-surface: #171a21;
+        --app-surface-2: #15181f;
+        --app-border: #30333d;
+        --app-text: #f5f5f5;
+        --app-muted: #9da3af;
+        --app-input-bg: #262934;
+        --shadow-color: rgba(0, 0, 0, 0.18);
+        color-scheme: dark;
+    }
+
+    @media (prefers-color-scheme: light) {
+        :root {
+            --app-bg: #f3f6fb;
+            --app-surface: #ffffff;
+            --app-surface-2: #eef3f9;
+            --app-border: #d5dce8;
+            --app-text: #1a1c20;
+            --app-muted: #4f5d73;
+            --app-input-bg: #f7f9fc;
+            --shadow-color: rgba(15, 23, 42, 0.08);
+            color-scheme: light;
+        }
+    }
+
     /* ------------------------------------------------------
        MAIN APP
     ------------------------------------------------------ */
 
     .stApp {
-        background-color: #0e1117;
-        color: #ffffff;
+        background-color: var(--app-bg);
+        color: var(--app-text);
+        color-scheme: light dark;
     }
 
     .main .block-container {
@@ -75,18 +102,18 @@ st.markdown(
     ------------------------------------------------------ */
 
     h1 {
-        color: #f5f5f5 !important;
+        color: var(--app-text) !important;
         font-size: 30px !important;
         font-weight: 700 !important;
     }
 
     h2 {
-        color: #f5f5f5 !important;
+        color: var(--app-text) !important;
         font-size: 22px !important;
     }
 
     h3 {
-        color: #f5f5f5 !important;
+        color: var(--app-text) !important;
         font-size: 18px !important;
     }
 
@@ -95,14 +122,15 @@ st.markdown(
     ------------------------------------------------------ */
 
     [data-testid="stFileUploader"] {
-        background-color: #262934;
+        background-color: var(--app-input-bg);
+        border: 1px solid var(--app-border);
         border-radius: 6px;
         padding: 4px;
     }
 
     [data-testid="stFileUploaderDropzone"] {
-        background-color: #262934;
-        border: 1px solid #343741;
+        background-color: var(--app-input-bg);
+        border: 1px solid var(--app-border);
     }
 
     /* ------------------------------------------------------
@@ -163,7 +191,7 @@ st.markdown(
     ------------------------------------------------------ */
 
     [data-testid="stDataFrame"] {
-        border: 1px solid #30333d;
+        border: 1px solid var(--border-color);
         border-radius: 5px;
     }
 
@@ -180,8 +208,8 @@ st.markdown(
     ------------------------------------------------------ */
 
     .summary-box {
-        background-color: #171a21;
-        border: 1px solid #30333d;
+        background-color: var(--app-surface);
+        border: 1px solid var(--app-border);
         border-radius: 6px;
         padding: 14px;
         text-align: center;
@@ -189,12 +217,12 @@ st.markdown(
     }
 
     .summary-title {
-        color: #9da3af;
+        color: var(--app-muted);
         font-size: 13px;
     }
 
     .summary-value {
-        color: #ffffff;
+        color: var(--app-text);
         font-size: 24px;
         font-weight: 700;
         margin-top: 5px;
@@ -205,12 +233,12 @@ st.markdown(
     ------------------------------------------------------ */
 
     .package-box {
-        background-color: #15181f;
-        border: 1px solid #30333d;
+        background-color: var(--app-surface-2);
+        border: 1px solid var(--app-border);
         border-radius: 6px;
         padding: 15px 20px;
         font-family: monospace;
-        color: #d9dce3;
+        color: var(--app-text);
         line-height: 1.8;
     }
 
@@ -219,7 +247,7 @@ st.markdown(
     ------------------------------------------------------ */
 
     .small-text {
-        color: #9da3af;
+        color: var(--app-muted);
         font-size: 12px;
     }
 
@@ -338,7 +366,7 @@ def show_login_page():
         <style>
         .login-title {
             text-align: center;
-            color: #f5f5f5;
+            color: var(--app-text);
             font-size: 26px;
             font-weight: 700;
             margin: 0 0 1rem 0;
@@ -350,10 +378,10 @@ def show_login_page():
             width: 100%;
             margin: 0 auto;
             padding: 1.25rem 1.15rem;
-            background: #171a21;
-            border: 1px solid #30333d;
+            background: var(--app-surface);
+            border: 1px solid var(--app-border);
             border-radius: 12px;
-            box-shadow: 0 10px 24px rgba(0, 0, 0, 0.18);
+            box-shadow: 0 10px 24px var(--shadow-color);
         }
 
         div[data-testid="stForm"] .stTextInput > div,
@@ -383,7 +411,7 @@ def show_login_page():
         .login-footer {
             margin-top: 1.25rem;
             text-align: center;
-            color: #9da3af;
+            color: var(--app-muted);
             font-size: 11px;
             letter-spacing: 0.02em;
             line-height: 1.5;
@@ -2058,7 +2086,7 @@ with header_col:
         <div style="
             font-size:30px;
             font-weight:700;
-            color:#f5f5f5;
+            color:var(--app-text);
         ">
             eCRF Document Automation System
         </div>
@@ -2370,7 +2398,7 @@ if st.session_state.dataframe is not None:
     st.markdown(
         f"""
         <div style="
-            color:#f5f5f5;
+            color:var(--app-text);
             font-weight:600;
             margin-top:8px;
             margin-bottom:8px;
@@ -2673,7 +2701,7 @@ st.markdown(
     """
     <div style="
         text-align:center;
-        color:#9da3af;
+        color:var(--app-muted);
         font-size:12px;
         margin-top:40px;
         padding:16px 0;
