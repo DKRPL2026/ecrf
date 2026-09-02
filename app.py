@@ -251,7 +251,10 @@ DEFAULT_STATE = {
     "summary": None,
     "audit_records": [],
 
-    "generation_id": None
+    "generation_id": None,
+
+    "authenticated": False,
+    "logged_in_user": None,
 }
 
 
@@ -259,6 +262,178 @@ for key, value in DEFAULT_STATE.items():
 
     if key not in st.session_state:
         st.session_state[key] = value
+
+
+# ============================================================
+# AUTHENTICATION CONFIGURATION
+# Keep this section easy to edit for future migration to
+# Streamlit secrets, password hashes, database auth, or SSO.
+# ============================================================
+
+AUTHORIZED_USERS = {
+    "da@drklinisch.com": "DKRPL@2021",
+    "user2@company.com": "CommonPassword123",
+    "user3@company.com": "CommonPassword123",
+}
+
+
+def normalize_email(email):
+
+    return str(email or "").strip().lower()
+
+
+def authenticate_user(email, password):
+
+    normalized_email = normalize_email(email)
+
+    if not normalized_email:
+        return False
+
+    expected_password = AUTHORIZED_USERS.get(normalized_email)
+
+    if expected_password is None:
+        return False
+
+    return expected_password == password
+
+
+def find_project_logo():
+
+    project_root = os.path.dirname(__file__)
+    candidate_extensions = {".png", ".jpg", ".jpeg", ".svg", ".webp"}
+
+    for root, _, files in os.walk(project_root):
+
+        for filename in files:
+
+            lowered_name = filename.lower()
+
+            if (
+                lowered_name.startswith("logo")
+                or "company" in lowered_name
+                or "brand" in lowered_name
+            ) and os.path.splitext(lowered_name)[1] in candidate_extensions:
+
+                return os.path.join(root, filename)
+
+    return None
+
+
+def logout():
+
+    st.session_state["authenticated"] = False
+    st.session_state["logged_in_user"] = None
+    st.session_state.pop("login_email", None)
+    st.session_state.pop("login_password", None)
+    st.session_state.pop("login_error", None)
+
+
+def show_login_page():
+
+    st.markdown(
+        """
+        <style>
+        .login-title {
+            text-align: center;
+            color: #f5f5f5;
+            font-size: 26px;
+            font-weight: 700;
+            margin: 0 0 1rem 0;
+            line-height: 1.2;
+        }
+
+        div[data-testid="stForm"] {
+            max-width: 460px;
+            width: 100%;
+            margin: 0 auto;
+            padding: 1.25rem 1.15rem;
+            background: #171a21;
+            border: 1px solid #30333d;
+            border-radius: 12px;
+            box-shadow: 0 10px 24px rgba(0, 0, 0, 0.18);
+        }
+
+        div[data-testid="stForm"] .stTextInput > div,
+        div[data-testid="stForm"] input {
+            width: 100%;
+        }
+
+        div[data-testid="stForm"] .stButton > button {
+            display: block;
+            margin: 0 auto;
+            min-width: 120px;
+            width: auto;
+            border-radius: 6px;
+            border: 1px solid #2e9f5b;
+            background-color: #238636;
+            color: #ffffff;
+            font-weight: 600;
+            padding: 0.55rem 1.2rem;
+        }
+
+        div[data-testid="stForm"] .stButton > button:hover {
+            border-color: #3fbf6f;
+            background-color: #2ea043;
+            color: #ffffff;
+        }
+
+        .login-footer {
+            margin-top: 1.25rem;
+            text-align: center;
+            color: #9da3af;
+            font-size: 11px;
+            letter-spacing: 0.02em;
+            line-height: 1.5;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    st.markdown(
+        '<div class="login-title">eCRF Document Automation System</div>',
+        unsafe_allow_html=True,
+    )
+
+    with st.form("login_form", clear_on_submit=False):
+
+        email = st.text_input(
+            "Email ID",
+            key="login_email",
+            placeholder="user@company.com",
+        )
+
+        password = st.text_input(
+            "Password",
+            type="password",
+            key="login_password",
+            placeholder="Enter your password",
+        )
+
+        submitted = st.form_submit_button(
+            "Login",
+            use_container_width=True,
+        )
+
+        if submitted:
+
+            if authenticate_user(email, password):
+
+                st.session_state["authenticated"] = True
+                st.session_state["logged_in_user"] = normalize_email(email)
+                st.session_state.pop("login_error", None)
+                st.success("Login successful.")
+                st.rerun()
+
+            else:
+
+                st.session_state["login_error"] = "Invalid user credentials."
+                st.error("Invalid user credentials.")
+
+    st.markdown(
+        '<div class="login-footer">Copyright ©2026 Dr. Klinisch  All Rights Reserved Version 1.0.</div>',
+        unsafe_allow_html=True,
+    )
 
 
 # ============================================================
@@ -1861,22 +2036,47 @@ def clear_generated_package():
     st.session_state.generation_id = None
 
 
+if not st.session_state.get("authenticated", False):
+
+    show_login_page()
+    st.stop()
+
+
 # ============================================================
 # HEADER
 # ============================================================
 
-st.markdown(
-    """
-    <div style="
-        font-size:30px;
-        font-weight:700;
-        color:#f5f5f5;
-    ">
-        eCRF Document Automation System
-    </div>
-    """,
-    unsafe_allow_html=True
-)
+header_col, logout_col = st.columns([5, 1])
+
+with header_col:
+
+    st.markdown(
+        """
+        <div style="
+            font-size:30px;
+            font-weight:700;
+            color:#f5f5f5;
+        ">
+            eCRF Document Automation System
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
+    st.caption(
+        f"Logged in as: {st.session_state.get('logged_in_user', 'Unknown user')}"
+    )
+
+with logout_col:
+
+    if st.button(
+        "Logout",
+        use_container_width=True,
+        key="logout_button"
+    ):
+
+        logout()
+        st.rerun()
 
 if os.path.isfile(USER_MANUAL_PATH):
 
@@ -2475,7 +2675,7 @@ st.markdown(
         margin-top:40px;
         padding:16px 0;
     ">
-        Copyright ©2026 Dr. Klinisch.
+        Copyright ©2026 Dr. Klinisch. Version  1.0 all rights reserved.
     </div>
     """,
     unsafe_allow_html=True
