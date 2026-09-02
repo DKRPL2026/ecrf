@@ -275,7 +275,7 @@ AUTHORIZED_USERS = {
     "sitemanagement7@drklinisch.com": "DKRPL@SM2021",
     "sitemanagement@drklinisch.com": "DKRPL@SM2021",
     "sitemanagement12@drklinisch.com": "DKRPL@SM2021",
-    "ClinicalCoordinator@drklinisch.com": "DKRPL@SM2021",
+    "clinicalcoordinator@drklinisch.com": "DKRPL@SM2021",
 }
 
 
@@ -287,6 +287,7 @@ def normalize_email(email):
 def authenticate_user(email, password):
 
     normalized_email = normalize_email(email)
+    normalized_password = str(password or "").strip()
 
     if not normalized_email:
         return False
@@ -296,7 +297,7 @@ def authenticate_user(email, password):
     if expected_password is None:
         return False
 
-    return expected_password == password
+    return expected_password == normalized_password
 
 
 def find_project_logo():
