@@ -9,9 +9,8 @@ streamlit run app.py
 
 ## Render
 
-For Streamlit Community Cloud, keep `packages.txt` in the repository root.
-It installs LibreOffice Writer so generated PDFs retain the Word template's
-layout, images, and checkbox appearance.
+Streamlit Community Cloud does not require system packages. The app uses its
+ReportLab fallback there when LibreOffice is unavailable.
 
 For Render, use a Web Service with Docker.
 
@@ -19,8 +18,8 @@ Set the service environment to Docker and use the repository `Dockerfile`.
 Docker provides LibreOffice Writer for the most faithful DOCX-to-PDF layout.
 Python-only deployments also have a basic ReportLab fallback for PDF output.
 
-After changing `packages.txt` or the Dockerfile, trigger a fresh deploy so the
-platform rebuilds the environment with LibreOffice.
+After changing the Dockerfile, trigger a fresh deploy so the platform rebuilds
+the environment with LibreOffice.
 
 If Render asks for a Start Command, use:
 
