@@ -3,7 +3,7 @@ FROM python:3.12-slim
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 
-RUN apt-get update \
+RUN apt-get -o Acquire::Retries=5 -o Acquire::Check-Valid-Until=false update \
     && apt-get install -y --no-install-recommends \
        libreoffice-writer \
        fonts-dejavu \
