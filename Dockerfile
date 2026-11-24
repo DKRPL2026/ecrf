@@ -7,6 +7,7 @@ RUN apt-get -o Acquire::Retries=5 -o Acquire::Check-Valid-Until=false update \
     && apt-get install -y --no-install-recommends \
        libreoffice-writer \
        fonts-dejavu \
+       fonts-crosextra-carlito \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

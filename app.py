@@ -1087,6 +1087,168 @@ def render_docx_as_pdf(
         elements
     )
 
+def create_carlito_docx(
+    source_path,
+    destination_path
+):
+
+    font_attribute_pattern = re.compile(
+        rb'((?:w:(?:ascii|hAnsi|eastAsia|cs|name)|typeface)=")Calibri(")'
+    )
+
+    with zipfile.ZipFile(
+        source_path,
+        "r"
+    ) as source_zip:
+
+        with zipfile.ZipFile(
+            destination_path,
+            "w",
+            zipfile.ZIP_DEFLATED
+        ) as destination_zip:
+
+            for entry in source_zip.infolist():
+
+                content = source_zip.read(
+                    entry
+                )
+
+                if entry.filename.lower().endswith(".xml"):
+
+                    content = font_attribute_pattern.sub(
+                        rb"\1Carlito\2",
+                        content
+                    )
+
+                destination_zip.writestr(
+                    entry,
+                    content
+                )
+
+
+def convert_with_libreoffice(
+    docx_path,
+    pdf_path,
+    soffice_candidates
+):
+
+    output_dir = os.path.dirname(
+        pdf_path
+    )
+
+    conversion_errors = []
+
+    with tempfile.TemporaryDirectory(
+        prefix="ecrf_lo_input_"
+    ) as lo_input_dir:
+
+        lo_docx_path = os.path.join(
+            lo_input_dir,
+            os.path.basename(docx_path)
+        )
+
+        create_carlito_docx(
+            docx_path,
+            lo_docx_path
+        )
+
+        for soffice in soffice_candidates:
+
+            profile_dir = tempfile.mkdtemp(
+                prefix="ecrf_lo_profile_"
+            )
+
+            try:
+
+                result = subprocess.run(
+                    [
+                        soffice,
+                        "--headless",
+                        (
+                            "-env:UserInstallation="
+                            + Path(profile_dir).resolve().as_uri()
+                        ),
+                        "--convert-to",
+                        "pdf:writer_pdf_Export",
+                        "--outdir",
+                        output_dir,
+                        lo_docx_path
+                    ],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    timeout=120
+                )
+
+            except (
+                OSError,
+                subprocess.SubprocessError
+            ) as e:
+
+                conversion_errors.append(
+                    f"{soffice}: {e}"
+                )
+
+                continue
+
+            finally:
+
+                shutil.rmtree(
+                    profile_dir,
+                    ignore_errors=True
+                )
+
+            generated_name = (
+                os.path.splitext(
+                    os.path.basename(lo_docx_path)
+                )[0]
+                + ".pdf"
+            )
+
+            generated_pdf = os.path.join(
+                output_dir,
+                generated_name
+            )
+
+            if (
+                os.path.isfile(generated_pdf)
+                and os.path.getsize(generated_pdf) > 0
+            ):
+
+                if os.path.abspath(
+                    generated_pdf
+                ) != os.path.abspath(
+                    pdf_path
+                ):
+
+                    shutil.move(
+                        generated_pdf,
+                        pdf_path
+                    )
+
+                print(
+                    "PDF converter used: LibreOffice "
+                    f"({os.path.basename(soffice)}; Carlito)"
+                )
+
+                return conversion_errors
+
+            if result.returncode != 0:
+
+                conversion_errors.append(
+                    f"{soffice}: "
+                    f"{result.stderr.strip() or result.stdout.strip()}"
+                )
+
+            else:
+
+                conversion_errors.append(
+                    f"{soffice}: did not create a non-empty PDF."
+                )
+
+    return conversion_errors
+
+
 def convert_docx_to_pdf(
     docx_path,
     pdf_path
@@ -1172,99 +1334,20 @@ def convert_docx_to_pdf(
         if resolved_candidate not in soffice_candidates:
             soffice_candidates.append(resolved_candidate)
 
-    for soffice in soffice_candidates:
-
-        profile_dir = tempfile.mkdtemp(
-            prefix="ecrf_lo_profile_"
+    conversion_errors.extend(
+        convert_with_libreoffice(
+            docx_path,
+            pdf_path,
+            soffice_candidates
         )
+    )
 
-        try:
+    if (
+        os.path.isfile(pdf_path)
+        and os.path.getsize(pdf_path) > 0
+    ):
 
-            result = subprocess.run(
-                [
-                    soffice,
-                    "--headless",
-                    (
-                        "-env:UserInstallation="
-                        + Path(profile_dir).resolve().as_uri()
-                    ),
-                    "--convert-to",
-                    "pdf:writer_pdf_Export",
-                    "--outdir",
-                    output_dir,
-                    docx_path
-                ],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                timeout=120
-            )
-
-        except (
-            OSError,
-            subprocess.SubprocessError
-        ) as e:
-
-            conversion_errors.append(
-                f"{soffice}: {e}"
-            )
-
-            continue
-
-        finally:
-
-            shutil.rmtree(
-                profile_dir,
-                ignore_errors=True
-            )
-
-        generated_name = (
-            os.path.splitext(
-                os.path.basename(docx_path)
-            )[0]
-            + ".pdf"
-        )
-
-        generated_pdf = os.path.join(
-            output_dir,
-            generated_name
-        )
-
-        if (
-            os.path.isfile(generated_pdf)
-            and os.path.getsize(generated_pdf) > 0
-        ):
-
-            if os.path.abspath(
-                generated_pdf
-            ) != os.path.abspath(
-                pdf_path
-            ):
-
-                shutil.move(
-                    generated_pdf,
-                    pdf_path
-                )
-
-            print(
-                "PDF converter used: LibreOffice "
-                f"({os.path.basename(soffice)})"
-            )
-
-            return
-
-        if result.returncode != 0:
-
-            conversion_errors.append(
-                f"{soffice}: "
-                f"{result.stderr.strip() or result.stdout.strip()}"
-            )
-
-        else:
-
-            conversion_errors.append(
-                f"{soffice}: did not create a non-empty PDF."
-            )
+        return
 
     raise Exception(
         "PDF conversion failed using docx2pdf and LibreOffice. "
