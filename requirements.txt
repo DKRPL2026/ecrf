@@ -3,5 +3,6 @@ pandas
 openpyxl
 xlrd
 python-docx
+docx2pdf
 reportlab
 pillow

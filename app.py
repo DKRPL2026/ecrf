@@ -7,6 +7,7 @@ import zipfile
 import tempfile
 import subprocess
 import platform
+from pathlib import Path
 from xml.sax.saxutils import escape
 
 import pandas as pd
@@ -281,6 +282,8 @@ DEFAULT_STATE = {
 
     "generation_id": None,
 
+    "ui_generation": uuid.uuid4().hex,
+
     "authenticated": False,
     "logged_in_user": None,
 }
@@ -352,6 +355,8 @@ def find_project_logo():
 
 
 def logout():
+
+    clear_user_data()
 
     st.session_state["authenticated"] = False
     st.session_state["logged_in_user"] = None
@@ -915,17 +920,17 @@ def render_docx_as_pdf(
         "GeneratedDocumentBody",
         parent=styles["BodyText"],
         fontName=font_name,
-        fontSize=10,
-        leading=14,
-        spaceAfter=7
+        fontSize=7,
+        leading=8,
+        spaceAfter=5
     )
 
     cell_style = ParagraphStyle(
         "GeneratedDocumentCell",
         parent=body_style,
         fontName=font_name,
-        fontSize=8,
-        leading=10,
+        fontSize=6,
+        leading=8,
         spaceAfter=0
     )
 
@@ -1096,6 +1101,8 @@ def convert_docx_to_pdf(
         exist_ok=True
     )
 
+    conversion_errors = []
+
     # --------------------------------------------------------
     # METHOD 1: docx2pdf on Windows
     # --------------------------------------------------------
@@ -1104,27 +1111,47 @@ def convert_docx_to_pdf(
 
         try:
 
+            import pythoncom
             from docx2pdf import convert
 
-            convert(
-                docx_path,
-                pdf_path
-            )
+            pythoncom.CoInitialize()
 
-            if os.path.exists(pdf_path):
+            try:
 
+                convert(
+                    docx_path,
+                    pdf_path
+                )
+
+            finally:
+
+                pythoncom.CoUninitialize()
+
+            if (
+                os.path.isfile(pdf_path)
+                and os.path.getsize(pdf_path) > 0
+            ):
+
+                print("PDF converter used: docx2pdf")
                 return
 
         except Exception as e:
 
-            windows_error = str(e)
+            conversion_errors.append(
+                f"docx2pdf: {e}"
+            )
 
         else:
 
-            windows_error = (
-                "DOCX to PDF conversion did not "
-                "create the PDF file."
+            conversion_errors.append(
+                "docx2pdf did not create a non-empty PDF."
             )
+
+    else:
+
+        conversion_errors.append(
+            "docx2pdf is available only on Windows."
+        )
 
     # --------------------------------------------------------
     # METHOD 2: LibreOffice / soffice
@@ -1145,9 +1172,11 @@ def convert_docx_to_pdf(
         if resolved_candidate not in soffice_candidates:
             soffice_candidates.append(resolved_candidate)
 
-    conversion_errors = []
-
     for soffice in soffice_candidates:
+
+        profile_dir = tempfile.mkdtemp(
+            prefix="ecrf_lo_profile_"
+        )
 
         try:
 
@@ -1155,7 +1184,10 @@ def convert_docx_to_pdf(
                 [
                     soffice,
                     "--headless",
-                    "-env:UserInstallation=file:///tmp/lo-profile",
+                    (
+                        "-env:UserInstallation="
+                        + Path(profile_dir).resolve().as_uri()
+                    ),
                     "--convert-to",
                     "pdf:writer_pdf_Export",
                     "--outdir",
@@ -1168,85 +1200,75 @@ def convert_docx_to_pdf(
                 timeout=120
             )
 
-            generated_name = (
-                os.path.splitext(
-                    os.path.basename(docx_path)
-                )[0]
-                + ".pdf"
-            )
-
-            generated_pdf = os.path.join(
-                output_dir,
-                generated_name
-            )
-
-            if os.path.exists(
-                generated_pdf
-            ):
-
-                if os.path.abspath(
-                    generated_pdf
-                ) != os.path.abspath(
-                    pdf_path
-                ):
-
-                    shutil.move(
-                        generated_pdf,
-                        pdf_path
-                    )
-
-                return
-
         except (
-            FileNotFoundError,
+            OSError,
             subprocess.SubprocessError
         ) as e:
-            conversion_errors.append(f"{soffice}: {e}")
-            continue
 
-        if result.returncode != 0:
             conversion_errors.append(
-                f"{soffice}: {result.stderr.strip() or result.stdout.strip()}"
+                f"{soffice}: {e}"
             )
 
-    # --------------------------------------------------------
-    # METHOD 3: Pure Python fallback for Python-only hosts
-    # --------------------------------------------------------
+            continue
 
-    try:
+        finally:
 
-        render_docx_as_pdf(
-            docx_path,
-            pdf_path
+            shutil.rmtree(
+                profile_dir,
+                ignore_errors=True
+            )
+
+        generated_name = (
+            os.path.splitext(
+                os.path.basename(docx_path)
+            )[0]
+            + ".pdf"
         )
 
-        if os.path.exists(pdf_path):
+        generated_pdf = os.path.join(
+            output_dir,
+            generated_name
+        )
+
+        if (
+            os.path.isfile(generated_pdf)
+            and os.path.getsize(generated_pdf) > 0
+        ):
+
+            if os.path.abspath(
+                generated_pdf
+            ) != os.path.abspath(
+                pdf_path
+            ):
+
+                shutil.move(
+                    generated_pdf,
+                    pdf_path
+                )
+
+            print(
+                "PDF converter used: LibreOffice "
+                f"({os.path.basename(soffice)})"
+            )
+
             return
 
-    except Exception as e:
+        if result.returncode != 0:
 
-        conversion_errors.append(
-            f"ReportLab fallback: {e}"
-        )
+            conversion_errors.append(
+                f"{soffice}: "
+                f"{result.stderr.strip() or result.stdout.strip()}"
+            )
 
-    # --------------------------------------------------------
-    # If everything failed
-    # --------------------------------------------------------
+        else:
 
-    if platform.system().lower() == "windows":
-
-        raise Exception(
-            "PDF conversion failed. "
-            "Microsoft Word/docx2pdf or LibreOffice "
-            "could not be found. "
-            f"Details: {windows_error}"
-        )
+            conversion_errors.append(
+                f"{soffice}: did not create a non-empty PDF."
+            )
 
     raise Exception(
-        "PDF conversion failed. "
-        "LibreOffice (soffice) is not available or could not convert the DOCX "
-        "on the server. "
-        f"Details: {'; '.join(conversion_errors) or 'no executable was found.'}"
+        "PDF conversion failed using docx2pdf and LibreOffice. "
+        f"Details: {'; '.join(conversion_errors) or 'no converter was found.'}"
     )
 
 
@@ -2068,6 +2090,20 @@ def clear_generated_package():
     st.session_state.generation_id = None
 
 
+def clear_user_data():
+
+    st.session_state.excel_bytes = None
+    st.session_state.excel_filename = None
+    st.session_state.template_bytes = None
+    st.session_state.template_filename = None
+    st.session_state.dataframe = None
+    st.session_state.selected_rows = []
+
+    clear_generated_package()
+
+    st.session_state.ui_generation = uuid.uuid4().hex
+
+
 if not st.session_state.get("authenticated", False):
 
     show_login_page()
@@ -2078,7 +2114,7 @@ if not st.session_state.get("authenticated", False):
 # HEADER
 # ============================================================
 
-header_col, logout_col = st.columns([5, 1])
+header_col, refresh_col, logout_col = st.columns([4, 1, 1])
 
 with header_col:
 
@@ -2098,6 +2134,18 @@ with header_col:
     st.caption(
         f"Logged in as: {st.session_state.get('logged_in_user', 'Unknown user')}"
     )
+
+with refresh_col:
+
+    if st.button(
+        "Refresh",
+        help="Clear uploaded files, selections, and generated results.",
+        use_container_width=True,
+        key="refresh_data_button"
+    ):
+
+        clear_user_data()
+        st.rerun()
 
 with logout_col:
 
@@ -2150,7 +2198,10 @@ with col1:
             "xlsx",
             "xls"
         ],
-        key="excel_uploader"
+        key=(
+            "excel_uploader_"
+            + st.session_state.ui_generation
+        )
     )
 
 with col2:
@@ -2160,7 +2211,10 @@ with col2:
         type=[
             "docx"
         ],
-        key="template_uploader"
+        key=(
+            "template_uploader_"
+            + st.session_state.ui_generation
+        )
     )
 
 
@@ -2351,6 +2405,8 @@ if st.session_state.dataframe is not None:
 
     editor_key = (
         "record_selector_"
+        + st.session_state.ui_generation
+        + "_"
         + excel_key
     )
 
