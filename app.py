@@ -621,7 +621,7 @@ def format_mcq(
     ).strip()
 
     selected_options = re.split(
-        r"[,;|]",
+        r"[;|]",
         selected_value
     )
 
