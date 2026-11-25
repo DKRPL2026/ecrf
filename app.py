@@ -621,9 +621,12 @@ def format_mcq(
     if not selected_value:
         return "☐"
 
-    option = str(
-        option
-    ).strip()
+    option = (
+        " ".join(
+            str(option).split()
+        )
+        .lower()
+    )
 
     selected_options = re.split(
         r"[;|]",
@@ -631,12 +634,14 @@ def format_mcq(
     )
 
     selected_options = [
-        x.strip().lower()
+        " ".join(
+            x.split()
+        ).lower()
         for x in selected_options
         if x.strip()
     ]
 
-    if option.lower() in selected_options:
+    if option in selected_options:
 
         return "☑"
 
@@ -659,44 +664,71 @@ def process_text(
     # NORMAL PLACEHOLDERS
     # --------------------------------------------------------
 
+    normalized_data = {}
+
     for key, value in data.items():
 
-        placeholder = (
-            "{{"
-            + str(key)
-            + "}}"
+        normalized_key = (
+            " ".join(
+                str(key).split()
+            )
+            .lower()
         )
 
-        formatted_value = format_value(
-            value
+        normalized_data[
+            normalized_key
+        ] = value
+
+    normal_pattern = (
+        r"\{\{(?!MCQ\s*:)([\s\S]*?)\}\}"
+    )
+
+    def normal_replace(match):
+
+        key = (
+            " ".join(
+                match.group(1).split()
+            )
+            .lower()
         )
 
-        text = text.replace(
-            placeholder,
-            formatted_value
+        if key not in normalized_data:
+            return match.group(0)
+
+        return format_value(
+            normalized_data[key]
         )
+
+    text = re.sub(
+        normal_pattern,
+        normal_replace,
+        text
+    )
 
     # --------------------------------------------------------
     # MCQ PLACEHOLDERS
     # --------------------------------------------------------
 
     mcq_pattern = (
-        r"\{\{MCQ:(.*?):(.*?)\}\}"
+        r"\{\{MCQ\s*:([\s\S]*?):([\s\S]*?)\}\}"
     )
 
     def mcq_replace(match):
 
         column_name = (
-            match.group(1)
-            .strip()
+            " ".join(
+                match.group(1).split()
+            )
+            .lower()
         )
 
         option = (
-            match.group(2)
-            .strip()
+            " ".join(
+                match.group(2).split()
+            )
         )
 
-        selected_value = data.get(
+        selected_value = normalized_data.get(
             column_name,
             ""
         )
@@ -938,10 +970,6 @@ def render_docx_as_pdf(
 
     def paragraph_text(text):
 
-        if font_name == "Helvetica":
-
-            text = (text or "").replace("☑", "[X]").replace("☐", "[ ]")
-
         return Paragraph(
             escape(text or "").replace("\n", "<br/>") or "<br/>",
             body_style
@@ -1015,14 +1043,6 @@ def render_docx_as_pdf(
                     paragraph.text
                     for paragraph in cell.paragraphs
                 )
-
-                if font_name == "Helvetica":
-
-                    cell_text = (
-                        cell_text
-                        .replace("☑", "[X]")
-                        .replace("☐", "[ ]")
-                    )
 
                 cells.append(
                     Paragraph(
